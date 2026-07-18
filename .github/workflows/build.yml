@@ -58,6 +58,7 @@ jobs:
           path: |
             dist/*.apk
             dist/*.metadata.json
+            dist/*.sha256
             dist/bin/op-flowd-linux-amd64
           if-no-files-found: error
 
@@ -112,5 +113,51 @@ jobs:
           path: |
             dist/*.ipk
             dist/*.control.txt
+            dist/*.sha256
             dist/bin/op-flowd-linux-amd64
           if-no-files-found: error
+
+  publish-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - test-and-package-immortalwrt-25
+      - test-and-package-immortalwrt-24
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: op-flow-insight-*
+          path: release-artifacts
+      - name: Collect release files
+        id: collect
+        run: |
+          mkdir -p release-files
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "publish=false" >> "$GITHUB_OUTPUT"
+          APK="$(find release-artifacts -type f -name "*-${VERSION}.apk" -print -quit)"
+          IPK="$(find release-artifacts -type f -name "*${VERSION}*.ipk" -print -quit)"
+          if [ -z "$APK" ] || [ -z "$IPK" ]; then
+            echo "::notice::Tag ${GITHUB_REF_NAME} does not match the package version in this source tree; automatic publishing is skipped."
+            exit 0
+          fi
+          find release-artifacts -type f \
+            \( -name '*.apk' -o -name '*.ipk' -o -name '*.sha256' \
+               -o -name '*.metadata.json' -o -name '*.control.txt' \) \
+            -exec cp '{}' release-files/ \;
+          find release-files -maxdepth 1 -type f -print
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+      - name: Publish GitHub Release
+        if: steps.collect.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NOTES=".github/release-notes/${GITHUB_REF_NAME}.md"
+          test -f "$NOTES"
+          gh release create "$GITHUB_REF_NAME" \
+            release-files/* \
+            --title "OP Flow Insight ${GITHUB_REF_NAME#v}" \
+            --notes-file "$NOTES" \
+            --verify-tag
