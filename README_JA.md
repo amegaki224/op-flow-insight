@@ -36,17 +36,25 @@ OP Flow Insight は ImmortalWrt 25.12.0 x86_64 向けの LuCI
 
 ## 画面イメージ
 
-### リアルタイム帯域推移
+### プラグインのトップ画面とリアルタイム帯域推移
 
-![OP Flow Insight リアルタイム帯域推移](docs/screenshots/live-trend.png)
+![OP Flow Insight 日本語画面のトップとリアルタイム帯域推移](docs/screenshots/ja/live-trend-home.png)
 
-### LAN ホストの通信量
+### デュアルスタック LAN ホストの通信量
 
-![OP Flow Insight LAN ホストの通信量](docs/screenshots/lan-hosts.png)
+![OP Flow Insight 日本語画面のデュアルスタック LAN ホスト通信量](docs/screenshots/ja/lan-hosts-dual-stack.png)
 
-### 現在の接続と IP 所属情報
+### IPv4 の現在の接続と IP 所属情報
 
-![OP Flow Insight 現在の接続と IP 所属情報](docs/screenshots/current-connections.png)
+![OP Flow Insight 日本語画面の IPv4 接続と IP 所属情報](docs/screenshots/ja/current-connections-ipv4.png)
+
+### IPv6 の現在の接続と IP 所属情報
+
+![OP Flow Insight 日本語画面の IPv6 接続と IP 所属情報](docs/screenshots/ja/current-connections-ipv6.png)
+
+### トラフィック履歴と TXT エクスポート
+
+![OP Flow Insight 日本語画面のトラフィック履歴と TXT エクスポート](docs/screenshots/ja/traffic-history.png)
 
 ## 対応環境
 
