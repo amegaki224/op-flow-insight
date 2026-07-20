@@ -41,17 +41,25 @@ explainable 0–100 risk score for remote IP addresses.
 
 ## Screenshots
 
-### Live bandwidth trend
+### Plugin home and live bandwidth trend
 
-![OP Flow Insight live bandwidth trend](docs/screenshots/live-trend.png)
+![OP Flow Insight English plugin home and live bandwidth trend](docs/screenshots/en/live-trend-home.png)
 
-### LAN host traffic
+### Dual-stack LAN host traffic
 
-![OP Flow Insight LAN host traffic](docs/screenshots/lan-hosts.png)
+![OP Flow Insight English dual-stack LAN host traffic](docs/screenshots/en/lan-hosts-dual-stack.png)
 
-### Current connections and IP attribution
+### IPv4 current connections and IP attribution
 
-![OP Flow Insight current connections and IP attribution](docs/screenshots/current-connections.png)
+![OP Flow Insight English IPv4 current connections and IP attribution](docs/screenshots/en/current-connections-ipv4.png)
+
+### IPv6 current connections and IP attribution
+
+![OP Flow Insight English IPv6 current connections and IP attribution](docs/screenshots/en/current-connections-ipv6.png)
+
+### Traffic history and TXT export
+
+![OP Flow Insight English traffic history and TXT export](docs/screenshots/en/traffic-history.png)
 
 ## Supported environment
 
