@@ -2,6 +2,7 @@ package collector
 
 import (
 	"net/netip"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -144,6 +145,72 @@ func TestIPv4AndIPv6MergeByMAC(t *testing.T) {
 		got.Flows[0].HostID != host.ID ||
 		got.Flows[1].HostID != host.ID {
 		t.Fatalf("flows were not linked to merged host: %+v", got.Flows)
+	}
+}
+
+func TestHostnameChangeRefreshesOnlineAndRetainedViews(t *testing.T) {
+	cfg := config.Default()
+	cfg.StateFile = filepath.Join(t.TempDir(), "state.json")
+	cfg.LeasePath = filepath.Join(t.TempDir(), "dhcp.leases")
+	cfg.LANPrefixes = []netip.Prefix{
+		netip.MustParsePrefix("192.168.1.0/24"),
+	}
+	mac := "02:11:22:33:44:55"
+	writeLease := func(hostname string) {
+		t.Helper()
+		line := "2000000000 " + mac + " 192.168.1.23 " + hostname + " *\n"
+		if err := os.WriteFile(cfg.LeasePath, []byte(line), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeLease("old-name")
+
+	tracker, err := New(cfg, dataset.NewManager(t.TempDir()), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tracker.lanDevices["br-lan"] = true
+	tracker.neighbors = map[string]neighbor{
+		"192.168.1.23": {
+			IP: "192.168.1.23", MAC: mac, Device: "br-lan",
+			State: "REACHABLE", Online: true,
+		},
+	}
+
+	now := time.Now().UTC()
+	fixture := "ipv4 2 tcp 6 100 ESTABLISHED src=192.168.1.23 dst=1.1.1.1 sport=50000 dport=443 packets=1 bytes=100 src=1.1.1.1 dst=192.168.1.23 sport=443 dport=50000 packets=2 bytes=1000 [ASSURED]\n"
+	tracker.Poll(strings.NewReader(fixture), now)
+	if got := tracker.Snapshot(); len(got.Hosts) != 1 ||
+		got.Hosts[0].Hostname != "old-name" {
+		t.Fatalf("initial hostname was not loaded: %+v", got.Hosts)
+	}
+
+	writeLease("new-name")
+	tracker.Poll(strings.NewReader(""), now.Add(leaseRefreshInterval))
+
+	got := tracker.Snapshot()
+	if len(got.Hosts) != 1 || got.Hosts[0].Hostname != "new-name" {
+		t.Fatalf("online hostname was not refreshed: %+v", got.Hosts)
+	}
+	history, err := tracker.UsageHistory(
+		"day", now.In(time.Local).Format("2006-01-02"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history.Records) != 1 ||
+		history.Records[0].Hostname != "new-name" {
+		t.Fatalf("retained hostname was not refreshed: %+v", history.Records)
+	}
+	_, exported, err := tracker.ExportUsageTXT(
+		"day", now.In(time.Local).Format("2006-01-02"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(exported, "\tnew-name\t") ||
+		strings.Contains(exported, "\told-name\t") {
+		t.Fatalf("export did not use the current hostname:\n%s", exported)
 	}
 }
 

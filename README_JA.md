@@ -27,6 +27,8 @@ OP Flow Insight は ImmortalWrt 25.12.0 x86_64 向けの LuCI
 - IPv4、IPv6、通常の外向き通信、ポート転送（DNAT）による内向き通信に対応し、
   LAN へ委任されたグローバル IPv6 プレフィックスを自動検出。
 - dnsmasq DHCP リースからホスト名と MAC アドレスを自動取得。
+- DHCP hostname の変更を約 2 秒でオンライン一覧と保存履歴へ反映。履歴の照会と
+  TXT 出力では照会／出力時点の最新名を使用。
 - ルーター自身のインターフェースアドレスを自動除外。
 - リモート IP の国・地域、ASN、ネットワーク組織を完全オフラインで検索し、
   閲覧先 IP を外部検索 API へ送信しない設計。
@@ -92,7 +94,7 @@ LuCI の `_()` 翻訳 API を使用します。コアパッケージは全言語
 未信頼パッケージを明示的に許可してインストールします。
 
 ```sh
-apk add --allow-untrusted ./op-flow-insight-0.1.1-r8.apk
+apk add --allow-untrusted ./op-flow-insight-0.1.1-r9.apk
 /etc/init.d/op-flow enable
 /etc/init.d/op-flow restart
 ```
@@ -101,10 +103,10 @@ LuCI で選択する言語に合わせて、任意の言語パッケージを 1 
 
 ```sh
 # 簡体字中国語
-apk add --allow-untrusted ./luci-i18n-op-flow-zh-cn-0.1.1-r8.apk
+apk add --allow-untrusted ./luci-i18n-op-flow-zh-cn-0.1.1-r9.apk
 
 # 日本語
-apk add --allow-untrusted ./luci-i18n-op-flow-ja-0.1.1-r8.apk
+apk add --allow-untrusted ./luci-i18n-op-flow-ja-0.1.1-r9.apk
 ```
 
 LuCI の **ステータス → Flow Insight** を開きます。初回インストール後は
@@ -126,10 +128,10 @@ logread -e op-flow
 ImmortalWrt 24.10.x は引き続き opkg/IPK を使用します。
 
 ```sh
-opkg install ./op-flow-insight_0.1.1-r8_x86_64.ipk
+opkg install ./op-flow-insight_0.1.1-r9_x86_64.ipk
 # 任意：簡体字中国語または日本語を選択
-opkg install ./luci-i18n-op-flow-ja_0.1.1-r8_all.ipk
-# opkg install ./luci-i18n-op-flow-zh-cn_0.1.1-r8_all.ipk
+opkg install ./luci-i18n-op-flow-ja_0.1.1-r9_all.ipk
+# opkg install ./luci-i18n-op-flow-zh-cn_0.1.1-r9_all.ipk
 /etc/init.d/op-flow enable
 /etc/init.d/op-flow restart
 ```

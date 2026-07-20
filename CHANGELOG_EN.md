@@ -9,6 +9,19 @@ are therefore published as historical binary archives. GitHub's automatically
 generated “Source code” archives do not represent those older versions.
 Starting with `r5`, release tags correspond to source commits.
 
+## 0.1.1-r9
+
+- Reduces dnsmasq DHCP lease hostname refresh latency from 30 seconds to about
+  two seconds, matching the default traffic polling interval.
+- Propagates hostname changes to online hosts, device profiles, and retained
+  traffic history without restarting the plugin, even when no new traffic is
+  observed for the online device.
+- Uses the latest hostname at query or export time for day, month, quarter,
+  and year history views and UTF-8 TXT exports instead of a cached historical
+  name.
+- Adds regression coverage proving TXT exports contain the new hostname and
+  not the previous one.
+
 ## 0.1.1-r8
 
 - Merges a device's IPv4 and IPv6 addresses into one host row by MAC using

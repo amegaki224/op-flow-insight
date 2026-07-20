@@ -113,6 +113,57 @@ func leasesByMAC(leases map[string]lease) map[string]lease {
 	return out
 }
 
+func (t *Tracker) refreshLeasesLocked(now time.Time) {
+	t.leases = readLeases(t.cfg.LeasePath)
+	t.leaseByMAC = leasesByMAC(t.leases)
+	t.lastLeaseRead = now
+	t.applyLeaseHostnamesLocked()
+}
+
+func (t *Tracker) applyLeaseHostnamesLocked() {
+	names := make(map[string]string)
+	macs := make(map[string]string)
+	for ip, info := range t.leases {
+		hostname := strings.TrimSpace(info.Hostname)
+		if hostname == "" {
+			continue
+		}
+		mac := normalizeMAC(info.MAC)
+		id := t.canonicalIDLocked(identity(mac, ip))
+		names[id] = hostname
+		if mac != "" {
+			macs[id] = mac
+			t.aliases["ip:"+ip] = id
+		}
+
+		profile := t.profiles[id]
+		profile.ID = id
+		profile.Hostname = hostname
+		if mac != "" {
+			profile.MAC = mac
+		}
+		if addr, err := netip.ParseAddr(ip); err == nil {
+			profile.Addresses = uniqueHostAddresses(append(
+				profile.Addresses, hostAddress(addr),
+			))
+		}
+		t.profiles[id] = profile
+	}
+
+	for ip, host := range t.hosts {
+		id := t.identityForIPLocked(ip)
+		hostname := names[id]
+		if hostname == "" {
+			continue
+		}
+		host.Hostname = hostname
+		if mac := macs[id]; mac != "" {
+			host.MAC = mac
+		}
+		t.hosts[ip] = host
+	}
+}
+
 func normalizeMAC(value string) string {
 	value = strings.ToUpper(strings.TrimSpace(value))
 	if value == "" || value == "00:00:00:00:00:00" {
@@ -287,7 +338,7 @@ func (t *Tracker) onlineHostsLocked() []model.Host {
 		group := groups[id]
 		group.ID = id
 		group.Online = true
-		if host.Hostname != "" {
+		if group.Hostname == "" && host.Hostname != "" {
 			group.Hostname = host.Hostname
 		}
 		if host.MAC != "" {
@@ -339,7 +390,7 @@ func (t *Tracker) onlineHostsLocked() []model.Host {
 			continue
 		}
 		group := groups[id]
-		if group.Hostname == "" {
+		if info.Hostname != "" {
 			group.Hostname = info.Hostname
 		}
 		if group.MAC == "" {

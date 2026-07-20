@@ -55,6 +55,8 @@ type lease struct {
 	MAC      string
 }
 
+const leaseRefreshInterval = 2 * time.Second
+
 func New(cfg config.Config, data *dataset.Manager, version string) (*Tracker, error) {
 	persisted, err := store.Load(cfg.StateFile)
 	if err != nil {
@@ -156,10 +158,9 @@ func (t *Tracker) Poll(r io.Reader, now time.Time) {
 	t.lastPoll = now
 	t.ensureMonthLocked(now)
 
-	if t.lastLeaseRead.IsZero() || now.Sub(t.lastLeaseRead) >= 30*time.Second {
-		t.leases = readLeases(t.cfg.LeasePath)
-		t.leaseByMAC = leasesByMAC(t.leases)
-		t.lastLeaseRead = now
+	if t.lastLeaseRead.IsZero() ||
+		now.Sub(t.lastLeaseRead) >= leaseRefreshInterval {
+		t.refreshLeasesLocked(now)
 	}
 
 	for ip, host := range t.hosts {
