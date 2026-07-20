@@ -1,6 +1,6 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: op-flow-insight 0.1.1-r6\n"
+"Project-Id-Version: op-flow-insight 0.1.1-r8\n"
 "Language: zh_Hans\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
@@ -68,8 +68,8 @@ msgstr "峰值"
 msgid "Unnamed host"
 msgstr "未命名主机"
 
-msgid "No LAN host connections have been observed yet"
-msgstr "暂未观察到内网主机连接"
+msgid "No LAN hosts are currently online"
+msgstr "当前没有在线的 LAN 主机"
 
 msgid "View current connections for"
 msgstr "查看当前连接："
@@ -116,8 +116,8 @@ msgstr "更新数据集"
 msgid "LAN hosts"
 msgstr "内网主机"
 
-msgid "Sorted by IP address; click a row to view the host's current connections"
-msgstr "按 IP 地址固定排序；点击一行查看该主机的当前连接"
+msgid "Only online hosts are shown. Records are retained while a host is offline; click a row to view IPv4 or IPv6 connections."
+msgstr "仅显示在线主机。主机离线期间仍保留记录；点击一行可查看 IPv4 或 IPv6 连接。"
 
 msgid "hosts recorded"
 msgstr "台已记录"
@@ -161,8 +161,8 @@ msgstr "目标 IP"
 msgid "Attribution / ASN"
 msgstr "归属 / ASN"
 
-msgid "This host has no active connections"
-msgstr "该主机当前没有活动连接"
+msgid "This host has no active IPv4 connections"
+msgstr "该主机当前没有活动的 IPv4 连接"
 
 msgid "Live bandwidth trend"
 msgstr "实时带宽趋势"
@@ -176,11 +176,11 @@ msgstr "当前下载"
 msgid "Current upload"
 msgstr "当前上传"
 
-msgid "Total downloaded"
-msgstr "累计下载"
+msgid "This month downloaded"
+msgstr "本月下载"
 
-msgid "Total uploaded"
-msgstr "累计上传"
+msgid "This month uploaded"
+msgstr "本月上传"
 
 msgid "Active hosts / connections"
 msgstr "活动主机 / 连接"
@@ -283,3 +283,75 @@ msgstr "正在监测的 LAN 网段："
 
 msgid "Delegated global IPv6 prefixes on LAN interfaces are detected automatically through ubus."
 msgstr "插件会通过 ubus 自动识别下发到 LAN 接口的公网 IPv6 前缀。"
+
+msgid "This host has no active IPv6 connections"
+msgstr "该主机当前没有活动的 IPv6 连接"
+
+msgid "IPv4"
+msgstr "IPv4"
+
+msgid "IPv6"
+msgstr "IPv6"
+
+msgid "LAN IPv6"
+msgstr "LAN IPv6"
+
+msgid "Link-local IPv6"
+msgstr "链路本地 IPv6"
+
+msgid "Global IPv6"
+msgstr "公网 IPv6"
+
+msgid "Router LAN IPv4"
+msgstr "路由器 LAN IPv4"
+
+msgid "Router LAN IPv6"
+msgstr "路由器 LAN IPv6"
+
+msgid "Traffic history"
+msgstr "流量历史"
+
+msgid "Retained traffic history"
+msgstr "保留的流量历史"
+
+msgid "No period available"
+msgstr "暂无可用周期"
+
+msgid "Day"
+msgstr "日"
+
+msgid "Month"
+msgstr "月"
+
+msgid "Quarter"
+msgstr "季度"
+
+msgid "Year"
+msgstr "年"
+
+msgid "Select period"
+msgstr "选择周期"
+
+msgid "Export TXT"
+msgstr "导出 TXT"
+
+msgid "Total"
+msgstr "合计"
+
+msgid "Loading retained traffic history…"
+msgstr "正在加载保留的流量历史…"
+
+msgid "No retained traffic records exist for this period"
+msgstr "所选周期没有保留的流量记录"
+
+msgid "Unable to load retained traffic history:"
+msgstr "无法加载保留的流量历史："
+
+msgid "Current accounting period:"
+msgstr "当前计费周期："
+
+msgid "The live cumulative counters reset at local router time on:"
+msgstr "实时累计计数将在路由器本地时间的以下时刻重置："
+
+msgid "Router LAN addresses:"
+msgstr "路由器 LAN 地址："

@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/op-flow-insight/op-flow-insight/internal/model"
 )
 
 const lanPrefixRefreshInterval = 30 * time.Second
@@ -59,7 +61,9 @@ func (t *Tracker) refreshLANPrefixes(now time.Time) {
 		))
 		return
 	}
-	prefixes, err := discoverLANPrefixes(output, t.cfg.LANPrefixes)
+	prefixes, devices, routerAddresses, err := discoverLANDetails(
+		output, t.cfg.LANPrefixes,
+	)
 	if err != nil {
 		t.health.Warnings = uniqueWarnings(append(t.health.Warnings,
 			"Unable to detect LAN prefixes through ubus; using configured prefixes: "+err.Error(),
@@ -69,23 +73,48 @@ func (t *Tracker) refreshLANPrefixes(now time.Time) {
 	t.health.Warnings = removeWarningPrefixes(t.health.Warnings,
 		"Unable to detect LAN prefixes through ubus")
 	t.lanPrefixes = prefixes
+	t.lanDevices = devices
+	t.routerLANAddresses = routerAddresses
 }
 
 func discoverLANPrefixes(
 	raw []byte, configured []netip.Prefix,
 ) ([]netip.Prefix, error) {
+	prefixes, _, _, err := discoverLANDetails(raw, configured)
+	return prefixes, err
+}
+
+func discoverLANDetails(
+	raw []byte, configured []netip.Prefix,
+) ([]netip.Prefix, map[string]bool, []model.HostAddress, error) {
 	var dump ubusNetworkDump
 	if err := json.Unmarshal(raw, &dump); err != nil {
-		return nil, fmt.Errorf("parse ubus network.interface dump: %w", err)
+		return nil, nil, nil,
+			fmt.Errorf("parse ubus network.interface dump: %w", err)
 	}
 
 	prefixes := append([]netip.Prefix(nil), configured...)
+	devices := make(map[string]bool)
+	var routerAddresses []model.HostAddress
 	for _, iface := range dump.Interfaces {
 		if !iface.Up || interfaceHasDefaultRoute(iface) || interfaceLooksLikeWAN(iface) {
 			continue
 		}
 		if !interfaceMatchesLAN(iface, configured) {
 			continue
+		}
+		if iface.Device != "" {
+			devices[iface.Device] = true
+		}
+		for _, value := range append(
+			append([]ubusAddress(nil), iface.IPv4Addresses...),
+			iface.IPv6Addresses...,
+		) {
+			addr, parseErr := netip.ParseAddr(value.Address)
+			if parseErr != nil {
+				continue
+			}
+			routerAddresses = append(routerAddresses, hostAddress(addr))
 		}
 		for _, value := range append(
 			append([]ubusAddress(nil), iface.IPv6PrefixAssignment...),
@@ -118,7 +147,8 @@ func discoverLANPrefixes(
 		}
 		return prefixes[i].Bits() < prefixes[j].Bits()
 	})
-	return prefixes, nil
+	routerAddresses = uniqueHostAddresses(routerAddresses)
+	return prefixes, devices, routerAddresses, nil
 }
 
 func interfaceMatchesLAN(

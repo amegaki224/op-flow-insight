@@ -9,6 +9,14 @@ case "$1" in
 			"dashboard": {},
 			"health": {},
 			"lookup": { "ip": "String" },
+			"history": {
+				"granularity": "String",
+				"period": "String"
+			},
+			"export": {
+				"granularity": "String",
+				"period": "String"
+			},
 			"update": {},
 			"reset": {}
 		}'
@@ -27,6 +35,16 @@ case "$1" in
 				}
 				exec "$DAEMON" -config "$CONFIG" ctl lookup "$ip"
 				;;
+			history|export)
+				input="$(cat)"
+				granularity="$(printf '%s' "$input" | jsonfilter -e '@.granularity')"
+				period="$(printf '%s' "$input" | jsonfilter -e '@.period')"
+				[ -n "$granularity" ] && [ -n "$period" ] || {
+					printf '%s\n' '{"error":"missing granularity or period"}'
+					exit 1
+				}
+				exec "$DAEMON" -config "$CONFIG" ctl "$2" "$granularity" "$period"
+				;;
 			*)
 				printf '%s\n' '{"error":"unknown method"}'
 				exit 1
@@ -37,4 +55,3 @@ case "$1" in
 		exit 1
 		;;
 esac
-

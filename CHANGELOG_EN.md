@@ -9,6 +9,28 @@ are therefore published as historical binary archives. GitHub's automatically
 generated “Source code” archives do not represent those older versions.
 Starting with `r5`, release tags correspond to source commits.
 
+## 0.1.1-r8
+
+- Merges a device's IPv4 and IPv6 addresses into one host row by MAC using
+  dnsmasq DHCP leases and the Linux neighbor table.
+- Labels IPv4, LAN IPv6, link-local IPv6, and global IPv6 on host rows, and
+  separately identifies the router's own LAN IPv4/IPv6 addresses.
+- Adds separate IPv4 and IPv6 subtabs to each host's current-connection view.
+- Shows only hosts with active traffic or a valid LAN neighbor entry in the
+  live list. Offline devices retain identity, cumulative usage, and history and
+  resume the same record when they return.
+- Retains daily per-device usage, aggregates a selected day, month, quarter, or
+  year, and exports the selected list as UTF-8 TXT.
+- Resets “this month” counters at 00:00 on the first day of each month in router
+  local time without deleting history or active-connection baselines.
+- Migrates state v1 to v2 automatically and archives legacy cumulative totals
+  on the migration day.
+- Adds rpcd history/export methods, Chinese and Japanese translations, and
+  regression coverage for dual-stack merging, offline hiding, rollover, and
+  TXT export.
+- Verified aligned columns, contained table scrolling, and no page overflow at
+  1920, 1280, and 480 viewport widths.
+
 ## 0.1.1-r7
 
 - Rebuilt the page with LuCI-native `cbi-map`, `cbi-section`, `cbi-tabmenu`,

@@ -16,6 +16,20 @@ var callUpdate = rpc.declare({
 	expect: {}
 });
 
+var callHistory = rpc.declare({
+	object: 'op-flow',
+	method: 'history',
+	params: [ 'granularity', 'period' ],
+	expect: {}
+});
+
+var callExport = rpc.declare({
+	object: 'op-flow',
+	method: 'export',
+	params: [ 'granularity', 'period' ],
+	expect: {}
+});
+
 function ensureStyles() {
 	var critical = document.getElementById('op-flow-insight-critical-style');
 	if (!critical) {
@@ -37,7 +51,7 @@ function ensureStyles() {
 		stylesheet.id = 'op-flow-insight-stylesheet';
 		stylesheet.rel = 'stylesheet';
 		stylesheet.type = 'text/css';
-		stylesheet.href = L.resource('op-flow.css') + '?v=0.1.1-r7';
+		stylesheet.href = L.resource('op-flow.css') + '?v=0.1.1-r8';
 		document.head.appendChild(stylesheet);
 	}
 	return stylesheet;
@@ -250,17 +264,60 @@ function orderedHosts(hosts) {
 	});
 }
 
-function hostLabel(host) {
-	return text(host && host.hostname, _('Unnamed host')) + ' · ' + text(host && host.ip);
+function hostKey(host) {
+	return host && (host.id || ('ip:' + host.ip));
 }
 
-function hostRows(hosts, selectedHostIP, onSelect) {
+function hostAddresses(host) {
+	if (host && host.addresses && host.addresses.length)
+		return host.addresses;
+	if (host && host.ip) {
+		return [ {
+			ip: host.ip,
+			family: host.ip.indexOf(':') >= 0 ? 'ipv6' : 'ipv4',
+			scope: 'lan'
+		} ];
+	}
+	return [];
+}
+
+function addressScopeLabel(address, router) {
+	if (address.family === 'ipv4')
+		return router ? _('Router LAN IPv4') : _('IPv4');
+	if (router)
+		return _('Router LAN IPv6');
+	if (address.scope === 'link-local')
+		return _('Link-local IPv6');
+	if (address.scope === 'lan')
+		return _('LAN IPv6');
+	return _('Global IPv6');
+}
+
+function addressBadge(address, router) {
+	return E('span', {
+		'class': 'ofi-address ofi-address-' + text(address.family, 'ipv4') +
+			' ofi-address-' + text(address.scope, 'global'),
+		'title': addressScopeLabel(address, router)
+	}, [
+		E('span', { 'class': 'ofi-address-kind' },
+			addressScopeLabel(address, router)),
+		E('span', { 'class': 'ofi-mono' }, text(address.ip))
+	]);
+}
+
+function hostLabel(host) {
+	return text(host && host.hostname, _('Unnamed host')) + ' · ' +
+		text(host && host.ip);
+}
+
+function hostRows(hosts, selectedHostID, onSelect) {
 	if (!hosts || !hosts.length) {
 		return [ E('tr', { 'class': 'tr' }, [
 			E('td', { 'colspan': 7, 'class': 'td ofi-empty' },
-			_('No LAN host connections have been observed yet')) ]) ];
+			_('No LAN hosts are currently online')) ]) ];
 	}
 	return hosts.map(function(host) {
+		var id = hostKey(host);
 		var activate = function(event) {
 			if (event && event.type === 'keydown' &&
 				event.key !== 'Enter' && event.key !== ' ') return;
@@ -272,19 +329,23 @@ function hostRows(hosts, selectedHostIP, onSelect) {
 		};
 		return E('tr', {
 			'class': 'tr ofi-host-row' +
-				(host.ip === selectedHostIP ? ' ofi-host-selected' : ''),
-			'data-host': host.ip,
+				(id === selectedHostID ? ' ofi-host-selected' : ''),
+			'data-host': id,
+			'data-ip': host.ip,
 			'tabindex': '0',
 			'role': 'button',
 			'aria-label': _('View current connections for') + ' ' + hostLabel(host),
-			'aria-selected': host.ip === selectedHostIP ? 'true' : 'false',
+			'aria-selected': id === selectedHostID ? 'true' : 'false',
 			'title': _('Click to view current connections for this host'),
 			'click': activate,
 			'keydown': activate
 		}, [
 			E('td', { 'class': 'td' }, [
 				E('strong', {}, text(host.hostname, _('Unnamed host'))),
-				E('div', { 'class': 'ofi-mono ofi-subtle' }, host.ip),
+				E('div', { 'class': 'ofi-address-list' },
+					hostAddresses(host).map(function(address) {
+						return addressBadge(address, false);
+					})),
 				host.mac ? E('div', { 'class': 'ofi-mono ofi-subtle' }, host.mac) : ''
 			]),
 			E('td', { 'class': 'td ofi-num ofi-down' }, rate(host.download_bps)),
@@ -326,6 +387,93 @@ function flowRows(flows, emptyMessage) {
 			E('td', { 'class': 'td ofi-num' }, riskBadge(flow.risk))
 		]);
 	});
+}
+
+function addressText(addresses, family) {
+	return (addresses || []).filter(function(address) {
+		return address.family === family;
+	}).map(function(address) {
+		var suffix = family === 'ipv6'
+			? ' (' + addressScopeLabel(address, false) + ')'
+			: '';
+		return address.ip + suffix;
+	}).join('\n') || '—';
+}
+
+function usageRows(records) {
+	if (!records || !records.length) {
+		return [ E('tr', { 'class': 'tr' }, [
+			E('td', { 'colspan': 6, 'class': 'td ofi-empty' },
+				_('No retained traffic records exist for this period'))
+		]) ];
+	}
+	return records.map(function(record) {
+		return E('tr', { 'class': 'tr' }, [
+			E('td', { 'class': 'td' }, [
+				E('strong', {}, text(record.hostname, _('Unnamed host'))),
+				record.mac ? E('div', {
+					'class': 'ofi-mono ofi-subtle'
+				}, record.mac) : ''
+			]),
+			E('td', {
+				'class': 'td ofi-mono ofi-address-cell',
+				'title': addressText(record.addresses, 'ipv4')
+			}, addressText(record.addresses, 'ipv4')),
+			E('td', {
+				'class': 'td ofi-mono ofi-address-cell',
+				'title': addressText(record.addresses, 'ipv6')
+			}, addressText(record.addresses, 'ipv6')),
+			E('td', { 'class': 'td ofi-num ofi-down' },
+				bytes(record.downloaded)),
+			E('td', { 'class': 'td ofi-num ofi-up' },
+				bytes(record.uploaded)),
+			E('td', { 'class': 'td ofi-num' },
+				bytes(Number(record.downloaded || 0) + Number(record.uploaded || 0)))
+		]);
+	});
+}
+
+function periodKindLabel(kind) {
+	switch (kind) {
+	case 'day': return _('Day');
+	case 'quarter': return _('Quarter');
+	case 'year': return _('Year');
+	default: return _('Month');
+	}
+}
+
+function saveTXT(result) {
+	var blob = new Blob([ text(result.content, '') ], {
+		type: 'text/plain;charset=utf-8'
+	});
+	var url = URL.createObjectURL(blob);
+	var link = document.createElement('a');
+	link.href = url;
+	link.download = text(result.filename, 'op-flow-traffic.txt');
+	link.style.display = 'none';
+	document.body.appendChild(link);
+	link.click();
+	document.body.removeChild(link);
+	window.setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
+}
+
+function subtabButtons(items, current, onSelect, className) {
+	return E('div', {
+		'class': 'ofi-subtabs ' + (className || ''),
+		'role': 'tablist'
+	}, items.map(function(item) {
+		return E('button', {
+			'class': 'cbi-button ofi-subtab' +
+				(item.value === current ? ' ofi-subtab-active' : ''),
+			'type': 'button',
+			'role': 'tab',
+			'aria-selected': item.value === current ? 'true' : 'false',
+			'click': function(event) {
+				event.preventDefault();
+				onSelect(item.value);
+			}
+		}, item.label + (item.count === undefined ? '' : ' (' + item.count + ')'));
+	}));
 }
 
 function table(head, body, className) {
@@ -376,12 +524,42 @@ return view.extend({
 			'class': 'cbi-map ofi-root' + (darkThemeActive() ? ' ofi-dark' : '')
 		});
 		this.activeTab = this.activeTab || 'trend';
-		this.selectedHostIP = this.selectedHostIP || '';
+		this.selectedHostID = this.selectedHostID || '';
+		this.connectionFamily = this.connectionFamily || 'ipv4';
+		this.historyGranularity = this.historyGranularity || 'month';
+		this.historyPeriod = this.historyPeriod || '';
+		this.historyRequestSerial = this.historyRequestSerial || 0;
 		this.renderData(data);
 		L.Poll.add(L.bind(function() {
 			return callDashboard().then(L.bind(this.renderData, this)).catch(function() {});
 		}, this), 2);
 		return this.root;
+	},
+
+	requestHistory: function(granularity, period) {
+		var options = ((this.lastData && this.lastData.usage_periods) || {})[
+			granularity
+		] || [];
+		period = period || options[0] || '';
+		if (!period) return Promise.resolve();
+		this.historyGranularity = granularity;
+		this.historyPeriod = period;
+		this.historyLoading = true;
+		var serial = ++this.historyRequestSerial;
+		if (this.lastData) this.renderData(this.lastData);
+		return callHistory(granularity, period).then(L.bind(function(result) {
+			if (serial !== this.historyRequestSerial) return;
+			this.historyData = result;
+			this.historyLoading = false;
+			if (this.lastData) this.renderData(this.lastData);
+		}, this)).catch(L.bind(function(err) {
+			if (serial !== this.historyRequestSerial) return;
+			this.historyLoading = false;
+			ui.addNotification(null, E('p', {},
+				_('Unable to load retained traffic history:') + ' ' +
+				text(err && err.message, String(err))));
+			if (this.lastData) this.renderData(this.lastData);
+		}, this));
 	},
 
 	renderData: function(data) {
@@ -403,21 +581,40 @@ return view.extend({
 		var hosts = orderedHosts(data.hosts);
 		var selectedHost = null;
 		for (var hostIndex = 0; hostIndex < hosts.length; hostIndex++) {
-			if (hosts[hostIndex].ip === this.selectedHostIP) {
+			if (hostKey(hosts[hostIndex]) === this.selectedHostID) {
 				selectedHost = hosts[hostIndex];
 				break;
 			}
 		}
-		if (!selectedHost && this.selectedHostIP) {
-			this.selectedHostIP = '';
+		if (!selectedHost && this.selectedHostID) {
+			this.selectedHostID = '';
 			if (this.activeTab === 'connections') this.activeTab = 'hosts';
 		}
+		var periodOptions = (data.usage_periods || {})[this.historyGranularity] || [];
+		if (!this.historyPeriod || periodOptions.indexOf(this.historyPeriod) < 0)
+			this.historyPeriod = periodOptions[0] || '';
 		var selectedFlows = selectedHost ? (data.flows || []).filter(function(flow) {
-			return flow.host_ip === selectedHost.ip;
+			if (flow.host_id && flow.host_id === hostKey(selectedHost)) return true;
+			return hostAddresses(selectedHost).some(function(address) {
+				return flow.host_ip === address.ip;
+			});
 		}) : [];
+		var familyFlows = {
+			ipv4: selectedFlows.filter(function(flow) {
+				return (flow.ip_version || (flow.host_ip.indexOf(':') >= 0
+					? 'ipv6' : 'ipv4')) === 'ipv4';
+			}),
+			ipv6: selectedFlows.filter(function(flow) {
+				return (flow.ip_version || (flow.host_ip.indexOf(':') >= 0
+					? 'ipv6' : 'ipv4')) === 'ipv6';
+			})
+		};
 		var self = this;
 		var selectHost = function(host) {
-			self.selectedHostIP = host.ip;
+			self.selectedHostID = hostKey(host);
+			self.connectionFamily = hostAddresses(host).some(function(address) {
+				return address.family === 'ipv4';
+			}) ? 'ipv4' : 'ipv6';
 			self.activeTab = 'connections';
 			self.pendingDetailFocus = true;
 			self.renderData(self.lastData);
@@ -458,13 +655,14 @@ return view.extend({
 					String(hosts.length) + ' ' + _('hosts recorded'))
 			]),
 			E('div', { 'class': 'cbi-section-descr ofi-panel-hint' },
-				_('Sorted by IP address; click a row to view the host\'s current connections')),
+				_('Only online hosts are shown. Records are retained while a host is offline; click a row to view IPv4 or IPv6 connections.')),
 			table(
 				[
 					_('Host'), _('Live download'), _('Live upload'),
-					_('Downloaded'), _('Uploaded'), _('Connections'), _('Risk')
+					_('This month downloaded'), _('This month uploaded'),
+					_('Connections'), _('Risk')
 				],
-				hostRows(hosts, this.selectedHostIP, selectHost),
+				hostRows(hosts, this.selectedHostID, selectHost),
 				'ofi-host-table'
 			)
 		]);
@@ -477,22 +675,41 @@ return view.extend({
 					E('small', { 'class': 'ofi-subtle' },
 						String(selectedFlows.length) + ' ' + _('active connections'))
 				]),
-				E('div', { 'class': 'cbi-section-descr ofi-panel-hint ofi-mono' },
-					selectedHost.ip + (selectedHost.mac ? ' · ' + selectedHost.mac : '')),
+				E('div', { 'class': 'ofi-detail-addresses' }, [
+					E('div', { 'class': 'ofi-address-list' },
+						hostAddresses(selectedHost).map(function(address) {
+							return addressBadge(address, false);
+						})),
+					selectedHost.mac ? E('span', {
+						'class': 'ofi-mono ofi-subtle'
+					}, selectedHost.mac) : ''
+				]),
 				E('div', { 'class': 'ofi-detail-summary' }, [
 					E('span', {}, [ _('Live download') + ' ',
 						E('strong', { 'class': 'ofi-down' }, rate(selectedHost.download_bps)) ]),
 					E('span', {}, [ _('Live upload') + ' ',
 						E('strong', { 'class': 'ofi-up' }, rate(selectedHost.upload_bps)) ]),
-					E('span', {}, _('Downloaded') + ' ' + bytes(selectedHost.downloaded)),
-					E('span', {}, _('Uploaded') + ' ' + bytes(selectedHost.uploaded))
+					E('span', {}, _('This month downloaded') + ' ' +
+						bytes(selectedHost.downloaded)),
+					E('span', {}, _('This month uploaded') + ' ' +
+						bytes(selectedHost.uploaded))
 				]),
+				subtabButtons([
+					{ value: 'ipv4', label: _('IPv4'), count: familyFlows.ipv4.length },
+					{ value: 'ipv6', label: _('IPv6'), count: familyFlows.ipv6.length }
+				], this.connectionFamily, function(family) {
+					self.connectionFamily = family;
+					self.renderData(self.lastData);
+				}, 'ofi-family-tabs'),
 				table(
 					[
 						_('Direction'), _('Source IP'), '', _('Destination IP'),
 						_('Attribution / ASN'), _('Download'), _('Upload'), _('Risk')
 					],
-					flowRows(selectedFlows, _('This host has no active connections')),
+					flowRows(familyFlows[this.connectionFamily],
+						this.connectionFamily === 'ipv6'
+							? _('This host has no active IPv6 connections')
+							: _('This host has no active IPv4 connections')),
 					'ofi-flow-table'
 				)
 			];
@@ -511,18 +728,106 @@ return view.extend({
 			'tabindex': '-1',
 			'data-ofi-panel': 'connections'
 		}, connectionsContent);
+		var historyMatches = this.historyData &&
+			this.historyData.granularity === this.historyGranularity &&
+			this.historyData.period === this.historyPeriod;
+		var displayedHistory = historyMatches ? this.historyData : null;
+		var historyTotals = (displayedHistory && displayedHistory.totals) || {};
+		var historyPanel = E('section', {
+			'class': 'cbi-section ofi-panel',
+			'data-tab': 'history',
+			'data-tab-title': _('Traffic history'),
+			'data-tab-active': this.activeTab === 'history' ? 'true' : null,
+			'data-ofi-panel': 'history'
+		}, [
+			E('h3', { 'class': 'ofi-panel-heading' }, [
+				E('span', {}, _('Retained traffic history')),
+				E('small', { 'class': 'ofi-subtle' },
+					this.historyPeriod || _('No period available'))
+			]),
+			E('div', { 'class': 'ofi-history-controls' }, [
+				subtabButtons([
+					{ value: 'day', label: _('Day') },
+					{ value: 'month', label: _('Month') },
+					{ value: 'quarter', label: _('Quarter') },
+					{ value: 'year', label: _('Year') }
+				], this.historyGranularity, function(granularity) {
+					var options = (self.lastData.usage_periods || {})[granularity] || [];
+					self.requestHistory(granularity, options[0] || '');
+				}, 'ofi-period-tabs'),
+				E('label', { 'class': 'ofi-period-picker' }, [
+					E('span', {}, _('Select period')),
+					E('select', {
+						'class': 'cbi-input-select',
+						'disabled': this.historyLoading ? '' : null,
+						'change': function(event) {
+							self.requestHistory(self.historyGranularity,
+								event.target.value);
+						}
+					}, periodOptions.map(function(period) {
+						return E('option', {
+							'value': period,
+							'selected': period === self.historyPeriod ? '' : null
+						}, period);
+					}))
+				]),
+				E('button', {
+					'class': 'cbi-button cbi-button-action',
+					'type': 'button',
+					'disabled': this.historyLoading || !this.historyPeriod ? '' : null,
+					'click': ui.createHandlerFn(this, function() {
+						return callExport(self.historyGranularity,
+							self.historyPeriod).then(function(result) {
+							saveTXT(result);
+						});
+					})
+				}, _('Export TXT'))
+			]),
+			E('div', { 'class': 'ofi-detail-summary' }, [
+				E('span', {}, periodKindLabel(this.historyGranularity) + ' ' +
+					text(this.historyPeriod)),
+				E('span', {}, [ _('Downloaded') + ' ',
+					E('strong', { 'class': 'ofi-down' },
+						bytes(historyTotals.downloaded)) ]),
+				E('span', {}, [ _('Uploaded') + ' ',
+					E('strong', { 'class': 'ofi-up' },
+						bytes(historyTotals.uploaded)) ])
+			]),
+			this.historyLoading
+				? E('div', { 'class': 'ofi-chart-empty' },
+					_('Loading retained traffic history…'))
+				: table(
+					[
+						_('Host'), _('IPv4'), _('IPv6'), _('Downloaded'),
+						_('Uploaded'), _('Total')
+					],
+					usageRows((displayedHistory && displayedHistory.records) || []),
+					'ofi-usage-table'
+				)
+		]);
 		[
 			[ 'trend', trendPanel ],
 			[ 'hosts', hostsPanel ],
-			[ 'connections', connectionsPanel ]
+			[ 'connections', connectionsPanel ],
+			[ 'history', historyPanel ]
 		].forEach(function(entry) {
 			entry[1].addEventListener('cbi-tab-active', function() {
 				self.activeTab = entry[0];
+				if (entry[0] === 'history' && !self.historyLoading &&
+					(!self.historyData ||
+					self.historyData.granularity !== self.historyGranularity ||
+					self.historyData.period !== self.historyPeriod)) {
+					self.requestHistory(self.historyGranularity, self.historyPeriod);
+				}
 			});
 		});
 		var tabGroup = E('div', { 'class': 'ofi-tab-group' }, [
-			trendPanel, hostsPanel, connectionsPanel
+			trendPanel, hostsPanel, connectionsPanel, historyPanel
 		]);
+		var resetAt = totals.next_reset_at
+			? new Date(totals.next_reset_at).toLocaleString()
+			: '—';
+		var routerAddresses = health.router_lan_addresses || [];
 		var content = [
 			E('h2', {}, _('Flow Insight')),
 			E('p', { 'class': 'ofi-lead' },
@@ -548,7 +853,7 @@ return view.extend({
 				table(
 					[
 						_('Current download'), _('Current upload'),
-						_('Total downloaded'), _('Total uploaded'),
+						_('This month downloaded'), _('This month uploaded'),
 						_('Active hosts / connections'), _('Current highest risk')
 					],
 					[
@@ -571,6 +876,11 @@ return view.extend({
 			]),
 			tabGroup,
 			E('div', { 'class': 'alert-message notice ofi-footnote' }, [
+				E('strong', {}, _('Current accounting period:') + ' '),
+				text(totals.period) + '. ' +
+					_('The live cumulative counters reset at local router time on:') +
+					' ' + resetAt,
+				E('br'),
 				E('strong', {}, _('Risk score:') + ' '),
 				_('A score of 0 means the IP was not observed in the loaded datasets; it does not mean safe. The score starts with the most severe evidence, adds 5 for each additional independent source, and is capped at 100. It is only a triage aid and never blocks an IP automatically.'),
 				E('br'),
@@ -578,7 +888,15 @@ return view.extend({
 				_('Attribution is limited to country/region and ASN, and all lookups run locally on the router.'),
 				E('br'),
 				_('Monitored LAN prefixes:') + ' ' +
-				((health.lan_prefixes || []).join(', ') || '—')
+				((health.lan_prefixes || []).join(', ') || '—'),
+				E('br'),
+				E('span', {}, _('Router LAN addresses:') + ' '),
+				routerAddresses.length
+					? E('span', { 'class': 'ofi-address-list ofi-router-addresses' },
+						routerAddresses.map(function(address) {
+							return addressBadge(address, true);
+						}))
+					: '—'
 			])
 		]);
 		dom.content(this.root, content);

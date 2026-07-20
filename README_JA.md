@@ -15,6 +15,13 @@ OP Flow Insight は ImmortalWrt 25.12.0 x86_64 向けの LuCI
 ## 主な機能
 
 - LAN IP ごとのアップロード／ダウンロード累積バイト数を永続化。
+- DHCP リースと近隣テーブルの MAC により、同じ端末の IPv4／IPv6 を一つに統合。
+  オンライン一覧から消えた端末も、累積値と履歴は保持。
+- 接続詳細を IPv4／IPv6 の個別タブで表示し、LAN、リンクローカル、グローバル、
+  ルーター自身の LAN IPv6 を識別。
+- 日別記録を保持し、指定した日・月・四半期・年で集計して UTF-8 TXT へ出力。
+- ルーターのローカル時刻で毎月 1 日 00:00 に現在の累積値をリセットし、
+  保存済み履歴は削除しない設計。
 - ホスト別・全体のリアルタイム速度、接続数、約 10 分間のトレンドグラフ。
 - 各接続の方向、プロトコル、送信元 IP／ポート、宛先 IP／ポートを表示。
 - IPv4、IPv6、通常の外向き通信、ポート転送（DNAT）による内向き通信に対応し、
@@ -77,7 +84,7 @@ LuCI の `_()` 翻訳 API を使用します。コアパッケージは全言語
 未信頼パッケージを明示的に許可してインストールします。
 
 ```sh
-apk add --allow-untrusted ./op-flow-insight-0.1.1-r7.apk
+apk add --allow-untrusted ./op-flow-insight-0.1.1-r8.apk
 /etc/init.d/op-flow enable
 /etc/init.d/op-flow restart
 ```
@@ -86,10 +93,10 @@ LuCI で選択する言語に合わせて、任意の言語パッケージを 1 
 
 ```sh
 # 簡体字中国語
-apk add --allow-untrusted ./luci-i18n-op-flow-zh-cn-0.1.1-r7.apk
+apk add --allow-untrusted ./luci-i18n-op-flow-zh-cn-0.1.1-r8.apk
 
 # 日本語
-apk add --allow-untrusted ./luci-i18n-op-flow-ja-0.1.1-r7.apk
+apk add --allow-untrusted ./luci-i18n-op-flow-ja-0.1.1-r8.apk
 ```
 
 LuCI の **ステータス → Flow Insight** を開きます。初回インストール後は
@@ -111,10 +118,10 @@ logread -e op-flow
 ImmortalWrt 24.10.x は引き続き opkg/IPK を使用します。
 
 ```sh
-opkg install ./op-flow-insight_0.1.1-r7_x86_64.ipk
+opkg install ./op-flow-insight_0.1.1-r8_x86_64.ipk
 # 任意：簡体字中国語または日本語を選択
-opkg install ./luci-i18n-op-flow-ja_0.1.1-r7_all.ipk
-# opkg install ./luci-i18n-op-flow-zh-cn_0.1.1-r7_all.ipk
+opkg install ./luci-i18n-op-flow-ja_0.1.1-r8_all.ipk
+# opkg install ./luci-i18n-op-flow-zh-cn_0.1.1-r8_all.ipk
 /etc/init.d/op-flow enable
 /etc/init.d/op-flow restart
 ```
@@ -166,6 +173,12 @@ bash ./scripts/build-ipk.sh /opt/immortalwrt-sdk-24.10.6-x86-64
 各アクティブ接続の前回カウンターを保存するため、デーモン再起動後も継続中の接続を
 二重計上しません。累積状態は標準で 5 分ごとに
 `/etc/op-flow/state.json` へアトミックに書き込み、通常停止時にも保存します。
+
+r8 以降は、端末別かつルーターのローカル暦日別の通信量も状態ファイルへ保存します。
+日・月・四半期・年の表示は照会時に集計します。「今月」の累積値はルーターの
+ローカル時刻で毎月 1 日 00:00 にリセットしますが、日別履歴、端末 ID、アクティブ
+接続の基準値は保持します。このため月をまたぐ接続を二重計上せず、オフライン端末も
+再接続時に以前の記録へ継続して集計されます。
 
 カーネルまたは権限の制限で conntrack destroy イベントを購読できない場合は、
 画面に警告を表示してポーリング方式へフォールバックします。この場合、非常に短い

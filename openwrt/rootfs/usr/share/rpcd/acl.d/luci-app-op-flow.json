@@ -6,7 +6,9 @@
 				"op-flow": [
 					"dashboard",
 					"health",
-					"lookup"
+					"lookup",
+					"history",
+					"export"
 				]
 			},
 			"uci": [
@@ -26,4 +28,3 @@
 		}
 	}
 }
-

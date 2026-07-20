@@ -20,25 +20,34 @@ import (
 )
 
 type Tracker struct {
-	mu             sync.RWMutex
-	saveMu         sync.Mutex
-	cfg            config.Config
-	data           *dataset.Manager
-	hosts          map[string]model.Host
-	active         map[string]store.Baseline
-	flows          []model.Flow
-	history        []model.RatePoint
-	health         model.Health
-	started        time.Time
-	lastPoll       time.Time
-	lastHistory    time.Time
-	leases         map[string]lease
-	localAddrs     map[netip.Addr]bool
-	lanPrefixes    []netip.Prefix
-	lastLeaseRead  time.Time
-	lastPrefixRead time.Time
-	version        string
-	lastSaveError  string
+	mu                 sync.RWMutex
+	saveMu             sync.Mutex
+	cfg                config.Config
+	data               *dataset.Manager
+	hosts              map[string]model.Host
+	active             map[string]store.Baseline
+	flows              []model.Flow
+	history            []model.RatePoint
+	daily              map[string]map[string]model.TrafficUsage
+	profiles           map[string]model.HostProfile
+	aliases            map[string]string
+	currentMonth       string
+	health             model.Health
+	started            time.Time
+	lastPoll           time.Time
+	lastHistory        time.Time
+	leases             map[string]lease
+	leaseByMAC         map[string]lease
+	neighbors          map[string]neighbor
+	localAddrs         map[netip.Addr]bool
+	lanPrefixes        []netip.Prefix
+	lanDevices         map[string]bool
+	routerLANAddresses []model.HostAddress
+	lastLeaseRead      time.Time
+	lastNeighborRead   time.Time
+	lastPrefixRead     time.Time
+	version            string
+	lastSaveError      string
 }
 
 type lease struct {
@@ -54,21 +63,29 @@ func New(cfg config.Config, data *dataset.Manager, version string) (*Tracker, er
 		persisted = store.Empty()
 	}
 	tracker := &Tracker{
-		cfg:     cfg,
-		data:    data,
-		hosts:   persisted.Hosts,
-		active:  persisted.Active,
-		history: persisted.History,
+		cfg:          cfg,
+		data:         data,
+		hosts:        persisted.Hosts,
+		active:       persisted.Active,
+		history:      persisted.History,
+		daily:        persisted.Daily,
+		profiles:     persisted.Profiles,
+		aliases:      persisted.Aliases,
+		currentMonth: persisted.CurrentMonth,
 		health: model.Health{
 			ConntrackReadable: false,
 			AccountingEnabled: false,
 		},
 		started:     time.Now().UTC(),
 		leases:      make(map[string]lease),
+		leaseByMAC:  make(map[string]lease),
+		neighbors:   make(map[string]neighbor),
 		localAddrs:  localInterfaceAddrs(),
 		lanPrefixes: append([]netip.Prefix(nil), cfg.LANPrefixes...),
+		lanDevices:  make(map[string]bool),
 		version:     version,
 	}
+	tracker.ensureMonth(time.Now())
 	if err != nil {
 		tracker.health.Warnings = append(tracker.health.Warnings,
 			"Cumulative state file is damaged; restarted from current connections: "+err.Error())
@@ -97,6 +114,7 @@ func (t *Tracker) Run(ctx context.Context) {
 
 func (t *Tracker) pollFile(now time.Time) {
 	t.refreshLANPrefixes(now)
+	t.refreshNeighbors(now)
 	f, err := os.Open(t.cfg.ConntrackPath)
 	if err != nil {
 		t.mu.Lock()
@@ -136,9 +154,11 @@ func (t *Tracker) Poll(r io.Reader, now time.Time) {
 		elapsed = 1
 	}
 	t.lastPoll = now
+	t.ensureMonthLocked(now)
 
 	if t.lastLeaseRead.IsZero() || now.Sub(t.lastLeaseRead) >= 30*time.Second {
 		t.leases = readLeases(t.cfg.LeasePath)
+		t.leaseByMAC = leasesByMAC(t.leases)
 		t.lastLeaseRead = now
 	}
 
@@ -166,9 +186,12 @@ func (t *Tracker) Poll(r io.Reader, now time.Time) {
 
 		host := t.hosts[classified.host.String()]
 		host.IP = classified.host.String()
-		if info, found := t.leases[host.IP]; found {
-			host.Hostname = info.Hostname
-			host.MAC = info.MAC
+		hostID, hostname, mac := t.resolveIdentityLocked(host.IP)
+		if hostname != "" {
+			host.Hostname = hostname
+		}
+		if mac != "" {
+			host.MAC = mac
 		}
 		host.Uploaded += upDelta
 		host.Downloaded += downDelta
@@ -182,12 +205,16 @@ func (t *Tracker) Poll(r io.Reader, now time.Time) {
 			host.MaxRisk = risk.Score
 		}
 		t.hosts[host.IP] = host
+		t.rememberProfileLocked(hostID, host, classified.host, now)
+		t.recordUsageLocked(now, hostID, upDelta, downDelta)
 		totalUpRate += upRate
 		totalDownRate += downRate
 
 		flow := model.Flow{
 			ID:          conn.Key(),
+			HostID:      hostID,
 			HostIP:      host.IP,
+			IPVersion:   addressFamily(classified.host),
 			Protocol:    conn.Protocol,
 			Direction:   classified.direction,
 			Source:      classified.source,
@@ -240,6 +267,7 @@ func (t *Tracker) ApplyDestroy(conn conntrack.Connection) {
 	now := time.Now().UTC()
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	t.ensureMonthLocked(now)
 	classified, ok := t.classify(conn)
 	if !ok {
 		return
@@ -249,14 +277,19 @@ func (t *Tracker) ApplyDestroy(conn conntrack.Connection) {
 	downDelta := counterDelta(classified.downloaded, previous.Download, seen)
 	host := t.hosts[classified.host.String()]
 	host.IP = classified.host.String()
-	if info, found := t.leases[host.IP]; found {
-		host.Hostname = info.Hostname
-		host.MAC = info.MAC
+	hostID, hostname, mac := t.resolveIdentityLocked(host.IP)
+	if hostname != "" {
+		host.Hostname = hostname
+	}
+	if mac != "" {
+		host.MAC = mac
 	}
 	host.Uploaded += upDelta
 	host.Downloaded += downDelta
 	host.LastSeen = now
 	t.hosts[host.IP] = host
+	t.rememberProfileLocked(hostID, host, classified.host, now)
+	t.recordUsageLocked(now, hostID, upDelta, downDelta)
 	t.active[conn.Key()] = store.Baseline{
 		HostIP: host.IP, Uploaded: classified.uploaded,
 		Download: classified.downloaded, LastSeen: now,
@@ -377,41 +410,31 @@ func counterDelta(current, previous uint64, seen bool) uint64 {
 func (t *Tracker) Snapshot() model.Dashboard {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	hosts := make([]model.Host, 0, len(t.hosts))
+	hosts := t.onlineHostsLocked()
 	var totals model.Totals
 	for _, host := range t.hosts {
-		hosts = append(hosts, host)
 		totals.Uploaded += host.Uploaded
 		totals.Downloaded += host.Downloaded
 		totals.UploadBPS += host.UploadBPS
 		totals.DownloadBPS += host.DownloadBPS
-		if host.ActiveFlows > 0 {
-			totals.ActiveHosts++
-		}
 		if host.MaxRisk > totals.HighestRisk {
 			totals.HighestRisk = host.MaxRisk
 		}
 	}
-	totals.ActiveFlows = len(t.flows)
-	sort.Slice(hosts, func(i, j int) bool {
-		left, leftErr := netip.ParseAddr(hosts[i].IP)
-		right, rightErr := netip.ParseAddr(hosts[j].IP)
-		if leftErr != nil || rightErr != nil {
-			return hosts[i].IP < hosts[j].IP
-		}
-		left = left.Unmap()
-		right = right.Unmap()
-		if left.Is4() != right.Is4() {
-			return left.Is4()
-		}
-		return left.Compare(right) < 0
-	})
+	totals.ActiveHosts = len(hosts)
+	flows := t.snapshotFlowsLocked()
+	totals.ActiveFlows = len(flows)
+	totals.Period = t.currentMonth
+	totals.ResetAt, totals.NextResetAt = monthBounds(t.currentMonth)
 	health := t.health
 	health.Warnings = append([]string(nil), t.health.Warnings...)
 	health.LANPrefixes = make([]string, 0, len(t.lanPrefixes))
 	for _, prefix := range t.lanPrefixes {
 		health.LANPrefixes = append(health.LANPrefixes, prefix.String())
 	}
+	health.RouterLANAddresses = append(
+		[]model.HostAddress(nil), t.routerLANAddresses...,
+	)
 	if t.lastSaveError != "" {
 		health.Warnings = append(health.Warnings, "Failed to save cumulative state: "+t.lastSaveError)
 	}
@@ -419,9 +442,10 @@ func (t *Tracker) Snapshot() model.Dashboard {
 		Version: t.version, GeneratedAt: time.Now().UTC(),
 		UptimeSec: int64(time.Since(t.started).Seconds()),
 		Totals:    totals, Hosts: hosts,
-		Flows:   append([]model.Flow(nil), t.flows...),
-		History: append([]model.RatePoint(nil), t.history...),
-		Data:    t.data.Status(), Health: health,
+		Flows:        flows,
+		History:      append([]model.RatePoint(nil), t.history...),
+		UsagePeriods: t.usagePeriodsLocked(),
+		Data:         t.data.Status(), Health: health,
 	}
 }
 
@@ -430,10 +454,14 @@ func (t *Tracker) Save() error {
 	defer t.saveMu.Unlock()
 	t.mu.RLock()
 	state := store.State{
-		Version: store.CurrentVersion,
-		Hosts:   make(map[string]model.Host, len(t.hosts)),
-		Active:  make(map[string]store.Baseline, len(t.active)),
-		History: append([]model.RatePoint(nil), t.history...),
+		Version:      store.CurrentVersion,
+		Hosts:        make(map[string]model.Host, len(t.hosts)),
+		Active:       make(map[string]store.Baseline, len(t.active)),
+		History:      append([]model.RatePoint(nil), t.history...),
+		Daily:        cloneDaily(t.daily),
+		Profiles:     cloneProfiles(t.profiles),
+		Aliases:      cloneStrings(t.aliases),
+		CurrentMonth: t.currentMonth,
 	}
 	for key, value := range t.hosts {
 		state.Hosts[key] = value
@@ -456,6 +484,7 @@ func (t *Tracker) Save() error {
 func (t *Tracker) ResetCounters() error {
 	now := time.Now().UTC()
 	t.mu.Lock()
+	t.ensureMonthLocked(now)
 	for key, host := range t.hosts {
 		host.Uploaded = 0
 		host.Downloaded = 0

@@ -42,7 +42,7 @@ func TestDiscoverLANPrefixesIncludesDelegatedGlobalIPv6(t *testing.T) {
 		]
 	}`)
 
-	prefixes, err := discoverLANPrefixes(raw, configured)
+	prefixes, devices, routerAddresses, err := discoverLANDetails(raw, configured)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,6 +51,14 @@ func TestDiscoverLANPrefixesIncludesDelegatedGlobalIPv6(t *testing.T) {
 	}
 	if containsPrefix(prefixes, "2001:db8:ffff::/64") {
 		t.Fatalf("WAN IPv6 prefix incorrectly classified as LAN: %v", prefixes)
+	}
+	if !devices["br-lan"] {
+		t.Fatalf("LAN device was not discovered: %v", devices)
+	}
+	if len(routerAddresses) != 2 ||
+		routerAddresses[0].IP != "192.168.1.1" ||
+		routerAddresses[1].IP != "2001:db8:64::1" {
+		t.Fatalf("router LAN addresses were not identified: %+v", routerAddresses)
 	}
 }
 

@@ -9,6 +9,12 @@
 ## 能力
 
 - 按 LAN IP 累计上传与下载字节，正常重启后继续累计。
+- 通过 DHCP lease 与邻居表按 MAC 合并同一设备的 IPv4/IPv6；在线列表只保留当前
+  在线主机，离线期间仍保留累计和历史记录。
+- 主机连接详情提供独立 IPv4、IPv6 标签，并标明 LAN、链路本地、公网 IPv6 以及
+  路由器自身的 LAN IPv6 地址。
+- 保存按日记录，可按指定日、月、季度、年汇总并导出 UTF-8 TXT 清单。
+- 当前累计量在路由器本地时间每月 1 日 00:00 重置；历史归档不会随月度重置删除。
 - 实时主机速率、总速率、活动连接数和约 10 分钟趋势图。
 - 展示每条当前连接的方向、协议、源 IP/端口、目标 IP/端口。
 - 支持 IPv4、IPv6、普通出站和端口转发（DNAT）入站；自动识别 LAN
@@ -61,7 +67,7 @@ LuCI 都显示日语，固件还需要 LuCI 基础日语包（通常为 `luci-i1
 从构建产物取得 `op-flow-insight-<版本>-r<修订>.apk`，上传到路由器后安装。自行构建的包没有加入 OpenWrt 官方签名仓库，因此需要显式允许本地未受信任包：
 
 ```sh
-apk add --allow-untrusted ./op-flow-insight-0.1.1-r7.apk
+apk add --allow-untrusted ./op-flow-insight-0.1.1-r8.apk
 /etc/init.d/op-flow enable
 /etc/init.d/op-flow restart
 ```
@@ -70,10 +76,10 @@ apk add --allow-untrusted ./op-flow-insight-0.1.1-r7.apk
 
 ```sh
 # 简体中文
-apk add --allow-untrusted ./luci-i18n-op-flow-zh-cn-0.1.1-r7.apk
+apk add --allow-untrusted ./luci-i18n-op-flow-zh-cn-0.1.1-r8.apk
 
 # 日语
-apk add --allow-untrusted ./luci-i18n-op-flow-ja-0.1.1-r7.apk
+apk add --allow-untrusted ./luci-i18n-op-flow-ja-0.1.1-r8.apk
 ```
 
 然后打开 LuCI 的“状态 → 流量洞察”。首次安装后可点击“更新数据集”，也可在 SSH 中同步执行：
@@ -94,10 +100,10 @@ logread -e op-flow
 24.10.x 仍使用 opkg/IPK。上传 IPK 后安装：
 
 ```sh
-opkg install ./op-flow-insight_0.1.1-r7_x86_64.ipk
+opkg install ./op-flow-insight_0.1.1-r8_x86_64.ipk
 # 可选：简体中文或日语，二选一
-opkg install ./luci-i18n-op-flow-zh-cn_0.1.1-r7_all.ipk
-# opkg install ./luci-i18n-op-flow-ja_0.1.1-r7_all.ipk
+opkg install ./luci-i18n-op-flow-zh-cn_0.1.1-r8_all.ipk
+# opkg install ./luci-i18n-op-flow-ja_0.1.1-r8_all.ipk
 /etc/init.d/op-flow enable
 /etc/init.d/op-flow restart
 ```
@@ -137,6 +143,11 @@ bash ./scripts/build-ipk.sh /opt/immortalwrt-sdk-24.10.6-x86-64
 - 路由器自身的地址自动忽略。
 
 后台保存每条活动连接的上一次字节基线，所以守护进程重启后不会把仍在进行的连接重复累计。累计状态默认每 5 分钟原子写入 `/etc/op-flow/state.json`，正常停止时也会立即保存。
+
+状态文件从 r8 起保存按本地自然日划分的设备流量记录，并在查询时汇总为日、月、季度
+或年。实时页面中的“本月累计”会在路由器本地时间每月 1 日 00:00 清零，但按日历史、
+设备身份和活动连接基线会保留，因此跨月连接不会重复计数，离线设备再次上线后也会继续
+归入原有记录。
 
 如果内核或权限不允许订阅 conntrack destroy 事件，页面会明确警告并退回纯轮询模式，此时极短连接可能少计。异常断电仍可能损失上次落盘后的增量。
 

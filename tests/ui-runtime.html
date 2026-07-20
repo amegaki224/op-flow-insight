@@ -136,7 +136,8 @@
 			totals: {
 				download_bps: 7885291, upload_bps: 2726297,
 				downloaded: 2555505541, uploaded: 301721305088,
-				active_hosts: 8, active_flows: 500, highest_risk: 0
+				active_hosts: 8, active_flows: 500, highest_risk: 0,
+				period: '2026-07', next_reset_at: '2026-07-31T15:00:00Z'
 			},
 			history: [
 				{ at: '2026-07-18T10:00:00Z', upload_bps: 1000000, download_bps: 3800000 },
@@ -147,16 +148,39 @@
 				{ at: '2026-07-18T10:00:25Z', upload_bps: 2726297, download_bps: 7885291 }
 			],
 			hosts: [
-				{ hostname: 'ASROCK-B550M-PRO4', ip: '10.64.0.68', mac: '00:0E:1E:62:BD:C2', download_bps: 7832862, upload_bps: 1342177, downloaded: 1026555904, uploaded: 335544320, active_flows: 32, max_risk: 0 },
-				{ hostname: 'konomitv', ip: '10.64.0.64', mac: 'BC:24:11:9A:93:C7', download_bps: 5632, upload_bps: 1300234, downloaded: 24431821, uploaded: 5025111736, active_flows: 4, max_risk: 0 },
-				{ hostname: 'gateway-test', ip: '10.64.0.5', mac: '00:11:22:33:44:55', download_bps: 1, upload_bps: 2, downloaded: 3, uploaded: 4, active_flows: 1, max_risk: 0 }
+				{ id: 'mac:00:0E:1E:62:BD:C2', hostname: 'ASROCK-B550M-PRO4', ip: '10.64.0.68', mac: '00:0E:1E:62:BD:C2', addresses: [ { ip: '10.64.0.68', family: 'ipv4', scope: 'lan' }, { ip: 'fd00::68', family: 'ipv6', scope: 'lan' }, { ip: '2001:db8:64::68', family: 'ipv6', scope: 'global' } ], download_bps: 7832862, upload_bps: 1342177, downloaded: 1026555904, uploaded: 335544320, active_flows: 32, max_risk: 0 },
+				{ id: 'mac:BC:24:11:9A:93:C7', hostname: 'konomitv', ip: '10.64.0.64', mac: 'BC:24:11:9A:93:C7', addresses: [ { ip: '10.64.0.64', family: 'ipv4', scope: 'lan' }, { ip: 'fe80::1', family: 'ipv6', scope: 'link-local' } ], download_bps: 5632, upload_bps: 1300234, downloaded: 24431821, uploaded: 5025111736, active_flows: 4, max_risk: 0 },
+				{ id: 'mac:00:11:22:33:44:55', hostname: 'gateway-test', ip: '10.64.0.5', mac: '00:11:22:33:44:55', addresses: [ { ip: '10.64.0.5', family: 'ipv4', scope: 'lan' }, { ip: '2001:db8:64::5', family: 'ipv6', scope: 'global' } ], download_bps: 1, upload_bps: 2, downloaded: 3, uploaded: 4, active_flows: 2, max_risk: 0 }
 			],
 			flows: [
-				{ host_ip: '10.64.0.68', direction: 'outbound', protocol: 'tcp', source: { ip: '10.64.0.68', port: 53000 }, destination: { ip: '1.1.1.1', port: 443 }, geo: { country_code: 'AU', asn: 13335, asn_org: 'Cloudflare' }, download_bps: 1048576, upload_bps: 524288, risk: { score: 0, evidence: [] } },
-				{ host_ip: '10.64.0.5', direction: 'outbound', protocol: 'udp', source: { ip: '10.64.0.5', port: 53001 }, destination: { ip: '8.8.8.8', port: 53 }, geo: { country_code: 'US', asn: 15169, asn_org: 'Google' }, download_bps: 1024, upload_bps: 2048, risk: { score: 0, evidence: [] } }
+				{ host_id: 'mac:00:0E:1E:62:BD:C2', host_ip: '10.64.0.68', ip_version: 'ipv4', direction: 'outbound', protocol: 'tcp', source: { ip: '10.64.0.68', port: 53000 }, destination: { ip: '1.1.1.1', port: 443 }, geo: { country_code: 'AU', asn: 13335, asn_org: 'Cloudflare' }, download_bps: 1048576, upload_bps: 524288, risk: { score: 0, evidence: [] } },
+				{ host_id: 'mac:00:11:22:33:44:55', host_ip: '10.64.0.5', ip_version: 'ipv4', direction: 'outbound', protocol: 'udp', source: { ip: '10.64.0.5', port: 53001 }, destination: { ip: '8.8.8.8', port: 53 }, geo: { country_code: 'US', asn: 15169, asn_org: 'Google' }, download_bps: 1024, upload_bps: 2048, risk: { score: 0, evidence: [] } },
+				{ host_id: 'mac:00:11:22:33:44:55', host_ip: '2001:db8:64::5', ip_version: 'ipv6', direction: 'outbound', protocol: 'tcp', source: { ip: '2001:db8:64::5', port: 53002 }, destination: { ip: '2606:4700:4700::1111', port: 443 }, geo: { country_code: 'US', asn: 13335, asn_org: 'Cloudflare' }, download_bps: 4096, upload_bps: 1024, risk: { score: 0, evidence: [] } }
 			],
+			usage_periods: {
+				day: [ '2026-07-20', '2026-07-19' ],
+				month: [ '2026-07', '2026-06' ],
+				quarter: [ '2026-Q3', '2026-Q2' ],
+				year: [ '2026' ]
+			},
 			data: { loaded: true, updated_at: '2026-07-18T10:00:00Z', update_running: false },
-			health: { warnings: [] }
+			health: {
+				warnings: [],
+				lan_prefixes: [ '10.64.0.0/16', 'fd00::/8', '2001:db8:64::/64' ],
+				router_lan_addresses: [
+					{ ip: '10.64.0.1', family: 'ipv4', scope: 'lan' },
+					{ ip: 'fd00::1', family: 'ipv6', scope: 'lan' }
+				]
+			}
+		};
+		var usageHistoryData = {
+			granularity: 'month',
+			period: '2026-07',
+			options: [ '2026-07', '2026-06' ],
+			totals: { downloaded: 2555505541, uploaded: 301721305088 },
+			records: [
+				{ host_id: 'mac:00:11:22:33:44:55', hostname: 'gateway-test', mac: '00:11:22:33:44:55', addresses: [ { ip: '10.64.0.5', family: 'ipv4', scope: 'lan' }, { ip: '2001:db8:64::5', family: 'ipv6', scope: 'global' } ], downloaded: 3, uploaded: 4 }
+			]
 		};
 
 		function append(parent, value) {
@@ -193,8 +217,14 @@
 			}
 		};
 		var rpc = {
-			declare: function() {
-				return function() { return Promise.resolve(dashboardData); };
+			declare: function(specification) {
+				return function() {
+					if (specification.method === 'history')
+						return Promise.resolve(usageHistoryData);
+					if (specification.method === 'export')
+						return Promise.resolve({ filename: 'op-flow-month-2026-07.txt', content: 'test' });
+					return Promise.resolve(dashboardData);
+				};
 			}
 		};
 		var ui = {
@@ -322,12 +352,12 @@
 				document.querySelector('.ofi-axis-title-x').textContent === 'Time' &&
 				yLabels.length === 3 && yLabels.every(function(item) { return /\/s$/.test(item.textContent); }) &&
 				xLabels.length === 3 && xLabels.every(function(item) { return /\d{2}:\d{2}/.test(item.textContent); }));
-			add('LuCI native tabs are contained', tabs.length === 3 &&
+			add('LuCI native tabs are contained', tabs.length === 4 &&
 				tabs.every(function(tab) {
 					return inside(tab.getBoundingClientRect(), rect('.cbi-tabmenu'), 2);
 				}));
 			add('LuCI native component classes are used',
-				document.querySelectorAll('.cbi-section').length === 4 &&
+				document.querySelectorAll('.cbi-section').length === 5 &&
 				Boolean(document.querySelector('.ofi-table.table .tr .th')) &&
 				Boolean(document.querySelector('.ofi-table.table .tr .td')));
 			add('download summary stays blue',
@@ -337,7 +367,7 @@
 
 			tabs[1].querySelector('a').click();
 			var hostRows = Array.from(document.querySelectorAll('.ofi-host-row'));
-			var hostIPs = hostRows.map(function(row) { return row.dataset.host; });
+			var hostIPs = hostRows.map(function(row) { return row.dataset.ip; });
 			add('hosts use stable numeric IP order',
 				hostIPs.join(',') === '10.64.0.5,10.64.0.64,10.64.0.68', hostIPs.join(','));
 			add('download host text stays blue',
@@ -366,6 +396,10 @@
 				hostRows.every(function(row) {
 					return row.tabIndex === 0 && /current connections/i.test(row.title);
 				}));
+			add('dual-stack host addresses share one host row',
+				Boolean(document.querySelector('.ofi-host-row .ofi-address-ipv4')) &&
+				Boolean(document.querySelector('.ofi-host-row .ofi-address-ipv6')) &&
+				/Global IPv6/.test(document.querySelector('.ofi-host-row').textContent));
 			add('table viewport is contained', Array.from(document.querySelectorAll('.ofi-table-scroll')).every(function(item) {
 				return item.getBoundingClientRect().right <= root.right + 2;
 			}));
@@ -376,6 +410,10 @@
 			add('host click opens its connection detail',
 				Boolean(detailPanel) && /10\.64\.0\.5/.test(detailPanel.textContent) &&
 				detailFlows.length === 1 && detailFlows[0].dataset.host === '10.64.0.5');
+			add('connection detail separates IPv4 and IPv6',
+				document.querySelectorAll('.ofi-family-tabs .ofi-subtab').length === 2 &&
+				/IPv4/.test(document.querySelector('.ofi-family-tabs').textContent) &&
+				/IPv6/.test(document.querySelector('.ofi-family-tabs').textContent));
 			add('selected host survives live data refresh', (function() {
 				var updated = JSON.parse(JSON.stringify(dashboardData));
 				updated.hosts.reverse();
@@ -391,8 +429,13 @@
 			tabs[1].querySelector('a').click();
 			hostRows = Array.from(document.querySelectorAll('.ofi-host-row'));
 			add('IP order does not change with traffic',
-				hostRows.map(function(row) { return row.dataset.host; }).join(',') ===
+				hostRows.map(function(row) { return row.dataset.ip; }).join(',') ===
 					'10.64.0.5,10.64.0.64,10.64.0.68');
+			tabs = Array.from(document.querySelectorAll('.cbi-tabmenu li'));
+			tabs[3].querySelector('a').click();
+			add('history tab provides period selection and TXT export',
+				Boolean(document.querySelector('.ofi-period-picker select')) &&
+				Boolean(document.querySelector('.ofi-history-controls .cbi-button-action')));
 			tabs = Array.from(document.querySelectorAll('.cbi-tabmenu li'));
 			tabs[0].querySelector('a').click();
 			add('document has no page overflow', document.documentElement.scrollWidth <= document.documentElement.clientWidth + 2,

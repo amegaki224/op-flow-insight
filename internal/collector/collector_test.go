@@ -62,11 +62,11 @@ func TestSnapshotHostsUseStableIPAddressOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	tracker.hosts = map[string]model.Host{
-		"192.168.1.100": {IP: "192.168.1.100", DownloadBPS: 9000},
-		"2001:db8::10":  {IP: "2001:db8::10", DownloadBPS: 8000},
-		"192.168.1.2":   {IP: "192.168.1.2", DownloadBPS: 1},
-		"2001:db8::2":   {IP: "2001:db8::2", DownloadBPS: 2},
-		"192.168.1.10":  {IP: "192.168.1.10", DownloadBPS: 10000},
+		"192.168.1.100": {IP: "192.168.1.100", DownloadBPS: 9000, ActiveFlows: 1},
+		"2001:db8::10":  {IP: "2001:db8::10", DownloadBPS: 8000, ActiveFlows: 1},
+		"192.168.1.2":   {IP: "192.168.1.2", DownloadBPS: 1, ActiveFlows: 1},
+		"2001:db8::2":   {IP: "2001:db8::2", DownloadBPS: 2, ActiveFlows: 1},
+		"192.168.1.10":  {IP: "192.168.1.10", DownloadBPS: 10000, ActiveFlows: 1},
 	}
 
 	got := tracker.Snapshot()
@@ -84,5 +84,131 @@ func TestSnapshotHostsUseStableIPAddressOrder(t *testing.T) {
 		if host.IP != want[index] {
 			t.Fatalf("host[%d] = %s, want %s", index, host.IP, want[index])
 		}
+	}
+}
+
+func TestIPv4AndIPv6MergeByMAC(t *testing.T) {
+	cfg := config.Default()
+	cfg.StateFile = filepath.Join(t.TempDir(), "state.json")
+	cfg.LeasePath = filepath.Join(t.TempDir(), "missing.leases")
+	cfg.LANPrefixes = []netip.Prefix{
+		netip.MustParsePrefix("192.168.1.0/24"),
+		netip.MustParsePrefix("2001:db8:64::/64"),
+	}
+	tracker, err := New(cfg, dataset.NewManager(t.TempDir()), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	mac := "02:11:22:33:44:55"
+	tracker.leases = map[string]lease{
+		"192.168.1.23": {Hostname: "dual-stack-host", MAC: mac},
+	}
+	tracker.leaseByMAC = leasesByMAC(tracker.leases)
+	tracker.neighbors = map[string]neighbor{
+		"192.168.1.23": {
+			IP: "192.168.1.23", MAC: mac, Device: "br-lan",
+			State: "REACHABLE", Online: true,
+		},
+		"2001:db8:64::23": {
+			IP: "2001:db8:64::23", MAC: mac, Device: "br-lan",
+			State: "STALE", Online: true,
+		},
+	}
+	tracker.lanDevices["br-lan"] = true
+	tracker.lastLeaseRead = now
+
+	fixture := strings.Join([]string{
+		"ipv4 2 tcp 6 100 ESTABLISHED src=192.168.1.23 dst=1.1.1.1 sport=50000 dport=443 packets=1 bytes=100 src=1.1.1.1 dst=192.168.1.23 sport=443 dport=50000 packets=2 bytes=1000 [ASSURED]",
+		"ipv6 10 tcp 6 100 ESTABLISHED src=2001:db8:64::23 dst=2606:4700:4700::1111 sport=50001 dport=443 packets=1 bytes=200 src=2606:4700:4700::1111 dst=2001:db8:64::23 sport=443 dport=50001 packets=2 bytes=2000 [ASSURED]",
+	}, "\n") + "\n"
+	tracker.Poll(strings.NewReader(fixture), now)
+
+	got := tracker.Snapshot()
+	if len(got.Hosts) != 1 {
+		t.Fatalf("merged host count = %d, want 1: %+v", len(got.Hosts), got.Hosts)
+	}
+	host := got.Hosts[0]
+	if host.ID != "mac:"+mac || host.Hostname != "dual-stack-host" {
+		t.Fatalf("unexpected merged identity: %+v", host)
+	}
+	if host.Uploaded != 300 || host.Downloaded != 3000 {
+		t.Fatalf("unexpected merged totals: %+v", host)
+	}
+	if len(host.Addresses) != 2 ||
+		host.Addresses[0].Family != "ipv4" ||
+		host.Addresses[1].Family != "ipv6" {
+		t.Fatalf("unexpected merged addresses: %+v", host.Addresses)
+	}
+	if len(got.Flows) != 2 ||
+		got.Flows[0].HostID != host.ID ||
+		got.Flows[1].HostID != host.ID {
+		t.Fatalf("flows were not linked to merged host: %+v", got.Flows)
+	}
+}
+
+func TestOfflineHostIsHiddenAndUsageResumes(t *testing.T) {
+	cfg := config.Default()
+	cfg.StateFile = filepath.Join(t.TempDir(), "state.json")
+	cfg.LeasePath = filepath.Join(t.TempDir(), "missing.leases")
+	cfg.LANPrefixes = []netip.Prefix{netip.MustParsePrefix("192.168.1.0/24")}
+	tracker, err := New(cfg, dataset.NewManager(t.TempDir()), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	first := "ipv4 2 tcp 6 100 ESTABLISHED src=192.168.1.50 dst=1.1.1.1 sport=50000 dport=443 packets=1 bytes=100 src=1.1.1.1 dst=192.168.1.50 sport=443 dport=50000 packets=2 bytes=1000 [ASSURED]\n"
+	tracker.Poll(strings.NewReader(first), now)
+	if got := tracker.Snapshot(); len(got.Hosts) != 1 {
+		t.Fatalf("online host count = %d, want 1", len(got.Hosts))
+	}
+
+	tracker.Poll(strings.NewReader(""), now.Add(2*time.Second))
+	if got := tracker.Snapshot(); len(got.Hosts) != 0 {
+		t.Fatalf("offline hosts were not cleared from live view: %+v", got.Hosts)
+	}
+	if len(tracker.hosts) != 1 {
+		t.Fatalf("offline accounting record was removed: %+v", tracker.hosts)
+	}
+
+	second := "ipv4 2 tcp 6 100 ESTABLISHED src=192.168.1.50 dst=9.9.9.9 sport=50001 dport=443 packets=1 bytes=50 src=9.9.9.9 dst=192.168.1.50 sport=443 dport=50001 packets=2 bytes=500 [ASSURED]\n"
+	tracker.Poll(strings.NewReader(second), now.Add(4*time.Second))
+	got := tracker.Snapshot()
+	if len(got.Hosts) != 1 ||
+		got.Hosts[0].Uploaded != 150 ||
+		got.Hosts[0].Downloaded != 1500 {
+		t.Fatalf("host did not resume its retained counters: %+v", got.Hosts)
+	}
+}
+
+func TestMonthlyRolloverPreservesConnectionBaseline(t *testing.T) {
+	cfg := config.Default()
+	cfg.StateFile = filepath.Join(t.TempDir(), "state.json")
+	cfg.LeasePath = filepath.Join(t.TempDir(), "missing.leases")
+	cfg.LANPrefixes = []netip.Prefix{netip.MustParsePrefix("192.168.1.0/24")}
+	tracker, err := New(cfg, dataset.NewManager(t.TempDir()), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	january := time.Date(2026, time.January, 31, 23, 59, 58, 0, time.Local)
+	tracker.currentMonth = "2026-01"
+	first := "ipv4 2 tcp 6 100 ESTABLISHED src=192.168.1.60 dst=1.1.1.1 sport=50000 dport=443 packets=1 bytes=1000 src=1.1.1.1 dst=192.168.1.60 sport=443 dport=50000 packets=2 bytes=10000 [ASSURED]\n"
+	second := "ipv4 2 tcp 6 98 ESTABLISHED src=192.168.1.60 dst=1.1.1.1 sport=50000 dport=443 packets=2 bytes=1300 src=1.1.1.1 dst=192.168.1.60 sport=443 dport=50000 packets=3 bytes=12000 [ASSURED]\n"
+	tracker.Poll(strings.NewReader(first), january)
+	tracker.Poll(strings.NewReader(second), january.Add(4*time.Second))
+
+	got := tracker.Snapshot()
+	if got.Totals.Period != "2026-02" {
+		t.Fatalf("current period = %q, want 2026-02", got.Totals.Period)
+	}
+	if got.Totals.Uploaded != 300 || got.Totals.Downloaded != 2000 {
+		t.Fatalf("pre-midnight counters were recounted after reset: %+v", got.Totals)
+	}
+	januaryUsage := tracker.daily["2026-01-31"]["ip:192.168.1.60"]
+	februaryUsage := tracker.daily["2026-02-01"]["ip:192.168.1.60"]
+	if januaryUsage.Uploaded != 1000 || januaryUsage.Downloaded != 10000 ||
+		februaryUsage.Uploaded != 300 || februaryUsage.Downloaded != 2000 {
+		t.Fatalf("unexpected daily split: january=%+v february=%+v",
+			januaryUsage, februaryUsage)
 	}
 }

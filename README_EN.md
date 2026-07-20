@@ -15,6 +15,15 @@ explainable 0–100 risk score for remote IP addresses.
 ## Features
 
 - Persistent upload and download byte counters per LAN IP.
+- Merges a device's IPv4 and IPv6 addresses by MAC using DHCP leases and the
+  neighbor table. Only online hosts occupy the live list; retained usage stays
+  available while a host is offline.
+- Separate IPv4 and IPv6 connection tabs, with LAN, link-local, global, and
+  router-owned LAN IPv6 labels.
+- Retained daily records with selectable day, month, quarter, and year
+  aggregation plus UTF-8 TXT export.
+- Live cumulative counters reset at 00:00 on the first day of each month in
+  router local time, without deleting retained history.
 - Live per-host and aggregate rates, active connection counts, and a roughly
   ten-minute trend chart.
 - Direction, protocol, source IP/port, and destination IP/port for each active
@@ -82,7 +91,7 @@ and install it. Locally built packages are not signed by the official OpenWrt
 repository, so installation must explicitly allow an untrusted local package:
 
 ```sh
-apk add --allow-untrusted ./op-flow-insight-0.1.1-r7.apk
+apk add --allow-untrusted ./op-flow-insight-0.1.1-r8.apk
 /etc/init.d/op-flow enable
 /etc/init.d/op-flow restart
 ```
@@ -91,10 +100,10 @@ Install one optional translation package for the selected LuCI language:
 
 ```sh
 # Simplified Chinese
-apk add --allow-untrusted ./luci-i18n-op-flow-zh-cn-0.1.1-r7.apk
+apk add --allow-untrusted ./luci-i18n-op-flow-zh-cn-0.1.1-r8.apk
 
 # Japanese
-apk add --allow-untrusted ./luci-i18n-op-flow-ja-0.1.1-r7.apk
+apk add --allow-untrusted ./luci-i18n-op-flow-ja-0.1.1-r8.apk
 ```
 
 Open **Status → Flow Insight** in LuCI. After the first installation, click
@@ -116,10 +125,10 @@ logread -e op-flow
 ImmortalWrt 24.10.x still uses opkg/IPK:
 
 ```sh
-opkg install ./op-flow-insight_0.1.1-r7_x86_64.ipk
+opkg install ./op-flow-insight_0.1.1-r8_x86_64.ipk
 # Optional: choose Simplified Chinese or Japanese
-opkg install ./luci-i18n-op-flow-zh-cn_0.1.1-r7_all.ipk
-# opkg install ./luci-i18n-op-flow-ja_0.1.1-r7_all.ipk
+opkg install ./luci-i18n-op-flow-zh-cn_0.1.1-r8_all.ipk
+# opkg install ./luci-i18n-op-flow-ja_0.1.1-r8_all.ipk
 /etc/init.d/op-flow enable
 /etc/init.d/op-flow restart
 ```
@@ -175,6 +184,13 @@ The daemon stores the last observed counters for every active connection so a
 restart does not count an existing connection twice. Cumulative state is
 written atomically to `/etc/op-flow/state.json` every five minutes by default
 and is also saved on a normal shutdown.
+
+Starting with r8, the state file also retains traffic per device and local
+calendar day. Day, month, quarter, and year views are aggregated at query time.
+The live “this month” counters reset at 00:00 on the first day of each month in
+router local time, while daily history, device identity, and active-connection
+baselines are preserved. A connection spanning midnight is therefore not
+counted twice, and an offline device resumes its existing record when it returns.
 
 If the kernel or permissions do not allow conntrack destroy subscriptions, the
 UI displays a warning and falls back to polling only. Very short connections

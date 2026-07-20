@@ -60,7 +60,7 @@ func run(args []string) error {
 		return runDaemon(cfg, data, updates)
 	case "ctl":
 		if len(rest) == 0 {
-			return fmt.Errorf("ctl requires dashboard, health, lookup, update, or reset")
+			return fmt.Errorf("ctl requires dashboard, health, lookup, history, export, update, or reset")
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
 		defer cancel()

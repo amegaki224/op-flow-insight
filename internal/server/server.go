@@ -92,6 +92,8 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("/v1/lookup", a.lookup)
 	mux.HandleFunc("/v1/update", a.update)
 	mux.HandleFunc("/v1/reset", a.reset)
+	mux.HandleFunc("/v1/history", a.history)
+	mux.HandleFunc("/v1/export", a.export)
 	return securityHeaders(mux)
 }
 
@@ -137,6 +139,31 @@ func (a *API) reset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"reset": true})
+}
+
+func (a *API) history(w http.ResponseWriter, r *http.Request) {
+	history, err := a.tracker.UsageHistory(
+		r.URL.Query().Get("granularity"), r.URL.Query().Get("period"),
+	)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, history)
+}
+
+func (a *API) export(w http.ResponseWriter, r *http.Request) {
+	filename, content, err := a.tracker.ExportUsageTXT(
+		r.URL.Query().Get("granularity"), r.URL.Query().Get("period"),
+	)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"filename": filename,
+		"content":  content,
+	})
 }
 
 func ServeUnix(ctx context.Context, socketPath string, handler http.Handler) error {
@@ -190,6 +217,13 @@ func Ctl(ctx context.Context, socketPath, action string, args []string, output i
 		path, method = "/v1/update", http.MethodPost
 	case "reset":
 		path, method = "/v1/reset?confirm=true", http.MethodPost
+	case "history", "export":
+		if len(args) != 2 {
+			return fmt.Errorf("%s requires granularity and period", action)
+		}
+		path = "/v1/" + action +
+			"?granularity=" + url.QueryEscape(args[0]) +
+			"&period=" + url.QueryEscape(args[1])
 	default:
 		return fmt.Errorf("unknown ctl action %q", action)
 	}

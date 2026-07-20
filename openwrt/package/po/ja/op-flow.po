@@ -1,6 +1,6 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: op-flow-insight 0.1.1-r6\n"
+"Project-Id-Version: op-flow-insight 0.1.1-r8\n"
 "Language: ja\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Plural-Forms: nplurals=1; plural=0;\n"
@@ -68,8 +68,8 @@ msgstr "ピーク"
 msgid "Unnamed host"
 msgstr "名前のないホスト"
 
-msgid "No LAN host connections have been observed yet"
-msgstr "LAN ホストの接続はまだ観測されていません"
+msgid "No LAN hosts are currently online"
+msgstr "現在オンラインの LAN ホストはありません"
 
 msgid "View current connections for"
 msgstr "現在の接続を表示："
@@ -116,8 +116,8 @@ msgstr "データセットを更新"
 msgid "LAN hosts"
 msgstr "LAN ホスト"
 
-msgid "Sorted by IP address; click a row to view the host's current connections"
-msgstr "IP アドレス順で固定表示します。行をクリックすると、そのホストの現在の接続を表示します"
+msgid "Only online hosts are shown. Records are retained while a host is offline; click a row to view IPv4 or IPv6 connections."
+msgstr "オンラインのホストのみ表示します。オフライン中も記録を保持し、行をクリックすると IPv4 または IPv6 の接続を表示できます。"
 
 msgid "hosts recorded"
 msgstr "台を記録"
@@ -161,8 +161,8 @@ msgstr "宛先 IP"
 msgid "Attribution / ASN"
 msgstr "帰属 / ASN"
 
-msgid "This host has no active connections"
-msgstr "このホストには現在アクティブな接続がありません"
+msgid "This host has no active IPv4 connections"
+msgstr "このホストには現在アクティブな IPv4 接続がありません"
 
 msgid "Live bandwidth trend"
 msgstr "リアルタイム帯域推移"
@@ -176,11 +176,11 @@ msgstr "現在のダウンロード"
 msgid "Current upload"
 msgstr "現在のアップロード"
 
-msgid "Total downloaded"
-msgstr "累積ダウンロード"
+msgid "This month downloaded"
+msgstr "今月のダウンロード"
 
-msgid "Total uploaded"
-msgstr "累積アップロード"
+msgid "This month uploaded"
+msgstr "今月のアップロード"
 
 msgid "Active hosts / connections"
 msgstr "アクティブホスト / 接続"
@@ -283,3 +283,75 @@ msgstr "監視対象の LAN プレフィックス："
 
 msgid "Delegated global IPv6 prefixes on LAN interfaces are detected automatically through ubus."
 msgstr "LAN インターフェースへ委任されたグローバル IPv6 プレフィックスを ubus で自動検出します。"
+
+msgid "This host has no active IPv6 connections"
+msgstr "このホストには現在アクティブな IPv6 接続がありません"
+
+msgid "IPv4"
+msgstr "IPv4"
+
+msgid "IPv6"
+msgstr "IPv6"
+
+msgid "LAN IPv6"
+msgstr "LAN IPv6"
+
+msgid "Link-local IPv6"
+msgstr "リンクローカル IPv6"
+
+msgid "Global IPv6"
+msgstr "グローバル IPv6"
+
+msgid "Router LAN IPv4"
+msgstr "ルーター LAN IPv4"
+
+msgid "Router LAN IPv6"
+msgstr "ルーター LAN IPv6"
+
+msgid "Traffic history"
+msgstr "トラフィック履歴"
+
+msgid "Retained traffic history"
+msgstr "保存済みトラフィック履歴"
+
+msgid "No period available"
+msgstr "利用可能な期間がありません"
+
+msgid "Day"
+msgstr "日"
+
+msgid "Month"
+msgstr "月"
+
+msgid "Quarter"
+msgstr "四半期"
+
+msgid "Year"
+msgstr "年"
+
+msgid "Select period"
+msgstr "期間を選択"
+
+msgid "Export TXT"
+msgstr "TXT をエクスポート"
+
+msgid "Total"
+msgstr "合計"
+
+msgid "Loading retained traffic history…"
+msgstr "保存済みトラフィック履歴を読み込んでいます…"
+
+msgid "No retained traffic records exist for this period"
+msgstr "選択した期間に保存済みのトラフィック記録はありません"
+
+msgid "Unable to load retained traffic history:"
+msgstr "保存済みトラフィック履歴を読み込めません："
+
+msgid "Current accounting period:"
+msgstr "現在の集計期間："
+
+msgid "The live cumulative counters reset at local router time on:"
+msgstr "現在の累積カウンターはルーターのローカル時刻で次の日時にリセットされます："
+
+msgid "Router LAN addresses:"
+msgstr "ルーター LAN アドレス："
