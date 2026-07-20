@@ -27,17 +27,25 @@
 
 ## 界面预览
 
-### 实时带宽趋势
+### 插件首页与实时带宽趋势
 
-![OP Flow Insight 实时带宽趋势](docs/screenshots/live-trend.png)
+![OP Flow Insight 中文界面插件首页与实时带宽趋势](docs/screenshots/zh/live-trend-home.png)
 
-### 内网主机流量
+### 双栈内网主机流量
 
-![OP Flow Insight 内网主机流量](docs/screenshots/lan-hosts.png)
+![OP Flow Insight 中文界面双栈内网主机流量](docs/screenshots/zh/lan-hosts-dual-stack.png)
 
-### 当前连接与 IP 归属
+### IPv4 当前连接与 IP 归属
 
-![OP Flow Insight 当前连接与 IP 归属](docs/screenshots/current-connections.png)
+![OP Flow Insight 中文界面 IPv4 当前连接与 IP 归属](docs/screenshots/zh/current-connections-ipv4.png)
+
+### IPv6 当前连接与 IP 归属
+
+![OP Flow Insight 中文界面 IPv6 当前连接与 IP 归属](docs/screenshots/zh/current-connections-ipv6.png)
+
+### 流量历史与 TXT 导出
+
+![OP Flow Insight 中文界面流量历史与 TXT 导出](docs/screenshots/zh/traffic-history.png)
 
 ## 支持环境
 
