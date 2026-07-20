@@ -9,6 +9,20 @@ are therefore published as historical binary archives. GitHub's automatically
 generated “Source code” archives do not represent those older versions.
 Starting with `r5`, release tags correspond to source commits.
 
+## 0.1.1-r10
+
+- Fixes the LAN host list showing both a previous IP and the current IP after
+  a device moves to another subnet or renews its address.
+- Determines current addresses from active conntrack flows, Linux neighbor
+  state, and the preferred valid DHCP lease. A stale-only address is hidden
+  when stronger current evidence exists for the same address family.
+- Limits filtering to the live LAN host list. Previous addresses remain in
+  device profiles and traffic history, so existing accounting is preserved.
+- Validates DHCP lease expiry and prefers a static lease or the lease with the
+  later expiry when dnsmasq temporarily retains multiple entries for one MAC.
+- Adds regression coverage for subnet moves and verifies that an address with
+  a genuinely active connection is not hidden.
+
 ## 0.1.1-r9
 
 - Reduces dnsmasq DHCP lease hostname refresh latency from 30 seconds to about

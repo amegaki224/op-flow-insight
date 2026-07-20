@@ -22,6 +22,8 @@
 - 自动读取 dnsmasq DHCP lease，显示主机名和 MAC。
 - DHCP hostname 变更约 2 秒内同步到在线列表和历史档案；历史查询及 TXT 导出使用
   查询或导出时的最新主机名。
+- 内网主机列表只显示当前有效或正在使用的地址；设备换网段后不再展示残留旧 IP，
+  但旧地址和累计量仍保留在历史档案中。
 - 自动排除路由器自己的接口地址。
 - 远端 IP 的国家/地区、ASN 与运营组织全部离线查询，不把用户访问的 IP 发给在线查询 API。
 - 多来源风险证据和可解释的 0–100 分；只提示，不自动封禁。
@@ -77,7 +79,7 @@ LuCI 都显示日语，固件还需要 LuCI 基础日语包（通常为 `luci-i1
 从构建产物取得 `op-flow-insight-<版本>-r<修订>.apk`，上传到路由器后安装。自行构建的包没有加入 OpenWrt 官方签名仓库，因此需要显式允许本地未受信任包：
 
 ```sh
-apk add --allow-untrusted ./op-flow-insight-0.1.1-r9.apk
+apk add --allow-untrusted ./op-flow-insight-0.1.1-r10.apk
 /etc/init.d/op-flow enable
 /etc/init.d/op-flow restart
 ```
@@ -86,10 +88,10 @@ apk add --allow-untrusted ./op-flow-insight-0.1.1-r9.apk
 
 ```sh
 # 简体中文
-apk add --allow-untrusted ./luci-i18n-op-flow-zh-cn-0.1.1-r9.apk
+apk add --allow-untrusted ./luci-i18n-op-flow-zh-cn-0.1.1-r10.apk
 
 # 日语
-apk add --allow-untrusted ./luci-i18n-op-flow-ja-0.1.1-r9.apk
+apk add --allow-untrusted ./luci-i18n-op-flow-ja-0.1.1-r10.apk
 ```
 
 然后打开 LuCI 的“状态 → 流量洞察”。首次安装后可点击“更新数据集”，也可在 SSH 中同步执行：
@@ -110,10 +112,10 @@ logread -e op-flow
 24.10.x 仍使用 opkg/IPK。上传 IPK 后安装：
 
 ```sh
-opkg install ./op-flow-insight_0.1.1-r9_x86_64.ipk
+opkg install ./op-flow-insight_0.1.1-r10_x86_64.ipk
 # 可选：简体中文或日语，二选一
-opkg install ./luci-i18n-op-flow-zh-cn_0.1.1-r9_all.ipk
-# opkg install ./luci-i18n-op-flow-ja_0.1.1-r9_all.ipk
+opkg install ./luci-i18n-op-flow-zh-cn_0.1.1-r10_all.ipk
+# opkg install ./luci-i18n-op-flow-ja_0.1.1-r10_all.ipk
 /etc/init.d/op-flow enable
 /etc/init.d/op-flow restart
 ```

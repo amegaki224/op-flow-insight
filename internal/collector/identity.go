@@ -100,17 +100,38 @@ func (t *Tracker) neighborIsLANLocked(addr netip.Addr, entry neighbor) bool {
 
 func leasesByMAC(leases map[string]lease) map[string]lease {
 	out := make(map[string]lease)
-	for _, item := range leases {
+	for ip, item := range leases {
 		mac := normalizeMAC(item.MAC)
 		if mac == "" {
 			continue
 		}
+		if item.IP == "" {
+			item.IP = ip
+		}
 		current := out[mac]
-		if current.Hostname == "" || item.Hostname != "" {
+		if preferLease(item, current) {
 			out[mac] = item
 		}
 	}
 	return out
+}
+
+func preferLease(candidate, current lease) bool {
+	if current.IP == "" {
+		return true
+	}
+	// A zero expiry is a static/infinite dnsmasq lease.
+	if candidate.ExpiresAt == 0 || current.ExpiresAt == 0 {
+		if candidate.ExpiresAt != current.ExpiresAt {
+			return candidate.ExpiresAt == 0
+		}
+	} else if candidate.ExpiresAt != current.ExpiresAt {
+		return candidate.ExpiresAt > current.ExpiresAt
+	}
+	if (candidate.Hostname != "") != (current.Hostname != "") {
+		return candidate.Hostname != ""
+	}
+	return compareHostAddress(candidate.IP, current.IP) > 0
 }
 
 func (t *Tracker) refreshLeasesLocked(now time.Time) {
@@ -124,13 +145,8 @@ func (t *Tracker) applyLeaseHostnamesLocked() {
 	names := make(map[string]string)
 	macs := make(map[string]string)
 	for ip, info := range t.leases {
-		hostname := strings.TrimSpace(info.Hostname)
-		if hostname == "" {
-			continue
-		}
 		mac := normalizeMAC(info.MAC)
 		id := t.canonicalIDLocked(identity(mac, ip))
-		names[id] = hostname
 		if mac != "" {
 			macs[id] = mac
 			t.aliases["ip:"+ip] = id
@@ -138,7 +154,6 @@ func (t *Tracker) applyLeaseHostnamesLocked() {
 
 		profile := t.profiles[id]
 		profile.ID = id
-		profile.Hostname = hostname
 		if mac != "" {
 			profile.MAC = mac
 		}
@@ -147,6 +162,20 @@ func (t *Tracker) applyLeaseHostnamesLocked() {
 				profile.Addresses, hostAddress(addr),
 			))
 		}
+		t.profiles[id] = profile
+	}
+	for mac, info := range t.leaseByMAC {
+		hostname := strings.TrimSpace(info.Hostname)
+		if hostname == "" {
+			continue
+		}
+		id := t.canonicalIDLocked(identity(mac, info.IP))
+		names[id] = hostname
+		macs[id] = mac
+		profile := t.profiles[id]
+		profile.ID = id
+		profile.Hostname = hostname
+		profile.MAC = mac
 		t.profiles[id] = profile
 	}
 
@@ -309,6 +338,76 @@ func uniqueHostAddresses(items []model.HostAddress) []model.HostAddress {
 	return out
 }
 
+type addressActivity struct {
+	address model.HostAddress
+	rank    int
+}
+
+func (t *Tracker) currentAddressesLocked(
+	id string, mac string,
+) []model.HostAddress {
+	id = t.canonicalIDLocked(id)
+	candidates := make(map[string]addressActivity)
+	add := func(ip string, rank int) {
+		addr, err := netip.ParseAddr(ip)
+		if err != nil {
+			return
+		}
+		addr = addr.Unmap()
+		value := hostAddress(addr)
+		current := candidates[value.IP]
+		if rank > current.rank {
+			candidates[value.IP] = addressActivity{address: value, rank: rank}
+		}
+	}
+
+	// An address with a live conntrack entry is actively in use.
+	for ip, host := range t.hosts {
+		if host.ActiveFlows > 0 && t.identityForIPLocked(ip) == id {
+			add(ip, 3)
+		}
+	}
+
+	// REACHABLE/DELAY/PROBE entries are stronger evidence than STALE entries.
+	// STALE remains useful for displaying an idle device when no stronger
+	// address exists for that address family.
+	for ip, entry := range t.neighbors {
+		addr, err := netip.ParseAddr(ip)
+		if err != nil || !entry.Online ||
+			!t.neighborIsLANLocked(addr, entry) ||
+			t.identityForIPLocked(ip) != id {
+			continue
+		}
+		rank := 1
+		if entry.State != "STALE" {
+			rank = 2
+		}
+		add(ip, rank)
+	}
+
+	// dnsmasq may temporarily retain the previous lease after a device moves
+	// between subnets. Only its preferred current lease is current-address
+	// evidence; every lease is still retained in the device profile/history.
+	if current, found := t.leaseByMAC[normalizeMAC(mac)]; found {
+		add(current.IP, 2)
+	}
+
+	strongFamily := make(map[string]bool)
+	for _, candidate := range candidates {
+		if candidate.rank >= 2 {
+			strongFamily[candidate.address.Family] = true
+		}
+	}
+	addresses := make([]model.HostAddress, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.rank >= 2 ||
+			!strongFamily[candidate.address.Family] {
+			addresses = append(addresses, candidate.address)
+		}
+	}
+	return uniqueHostAddresses(addresses)
+}
+
 func (t *Tracker) onlineHostsLocked() []model.Host {
 	active := make(map[string]bool)
 	for ip, host := range t.hosts {
@@ -355,10 +454,6 @@ func (t *Tracker) onlineHostsLocked() []model.Host {
 		if host.LastSeen.After(group.LastSeen) {
 			group.LastSeen = host.LastSeen
 		}
-		if addr, err := netip.ParseAddr(ip); err == nil &&
-			(host.ActiveFlows > 0 || t.neighborOnlineLocked(ip)) {
-			group.Addresses = append(group.Addresses, hostAddress(addr))
-		}
 		groups[id] = group
 	}
 	for ip, entry := range t.neighbors {
@@ -381,30 +476,25 @@ func (t *Tracker) onlineHostsLocked() []model.Host {
 				group.Hostname = info.Hostname
 			}
 		}
-		group.Addresses = append(group.Addresses, hostAddress(addr))
 		groups[id] = group
 	}
-	for ip, info := range t.leases {
-		id := t.canonicalIDLocked(identity(info.MAC, ip))
-		if !active[id] {
+	for id, group := range groups {
+		info, found := t.leaseByMAC[normalizeMAC(group.MAC)]
+		if !found {
 			continue
 		}
-		group := groups[id]
 		if info.Hostname != "" {
 			group.Hostname = info.Hostname
 		}
 		if group.MAC == "" {
 			group.MAC = normalizeMAC(info.MAC)
 		}
-		if addr, err := netip.ParseAddr(ip); err == nil {
-			group.Addresses = append(group.Addresses, hostAddress(addr))
-		}
 		groups[id] = group
 	}
 
 	hosts := make([]model.Host, 0, len(groups))
 	for _, host := range groups {
-		host.Addresses = uniqueHostAddresses(host.Addresses)
+		host.Addresses = t.currentAddressesLocked(host.ID, host.MAC)
 		if len(host.Addresses) > 0 {
 			host.IP = host.Addresses[0].IP
 		}
@@ -414,11 +504,6 @@ func (t *Tracker) onlineHostsLocked() []model.Host {
 		return compareHostAddress(hosts[i].IP, hosts[j].IP) < 0
 	})
 	return hosts
-}
-
-func (t *Tracker) neighborOnlineLocked(ip string) bool {
-	entry, found := t.neighbors[ip]
-	return found && entry.Online
 }
 
 func compareHostAddress(leftRaw, rightRaw string) int {

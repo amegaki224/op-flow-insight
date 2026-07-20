@@ -4,6 +4,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -145,6 +146,106 @@ func TestIPv4AndIPv6MergeByMAC(t *testing.T) {
 		got.Flows[0].HostID != host.ID ||
 		got.Flows[1].HostID != host.ID {
 		t.Fatalf("flows were not linked to merged host: %+v", got.Flows)
+	}
+}
+
+func TestOnlineHostOnlyShowsCurrentAddressesAfterSubnetMove(t *testing.T) {
+	cfg := config.Default()
+	cfg.StateFile = filepath.Join(t.TempDir(), "state.json")
+	cfg.LeasePath = filepath.Join(t.TempDir(), "missing.leases")
+	cfg.LANPrefixes = []netip.Prefix{
+		netip.MustParsePrefix("192.168.10.0/24"),
+		netip.MustParsePrefix("192.168.20.0/24"),
+	}
+	tracker, err := New(cfg, dataset.NewManager(t.TempDir()), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mac := "02:11:22:33:44:55"
+	oldIP, currentIP := "192.168.10.23", "192.168.20.23"
+	now := time.Now().UTC()
+	tracker.leases = map[string]lease{
+		oldIP: {
+			IP: oldIP, Hostname: "moved-vm", MAC: mac,
+			ExpiresAt: now.Add(time.Hour).Unix(),
+		},
+		currentIP: {
+			IP: currentIP, Hostname: "moved-vm", MAC: mac,
+			ExpiresAt: now.Add(2 * time.Hour).Unix(),
+		},
+	}
+	tracker.leaseByMAC = leasesByMAC(tracker.leases)
+	tracker.neighbors = map[string]neighbor{
+		oldIP: {
+			IP: oldIP, MAC: mac, Device: "br-lan",
+			State: "STALE", Online: true,
+		},
+		currentIP: {
+			IP: currentIP, MAC: mac, Device: "br-lan",
+			State: "REACHABLE", Online: true,
+		},
+	}
+	tracker.lanDevices["br-lan"] = true
+	id := "mac:" + mac
+	tracker.profiles[id] = model.HostProfile{
+		ID: id, Hostname: "moved-vm", MAC: mac,
+		Addresses: []model.HostAddress{
+			hostAddress(netip.MustParseAddr(oldIP)),
+			hostAddress(netip.MustParseAddr(currentIP)),
+		},
+	}
+
+	if preferred := tracker.leaseByMAC[mac].IP; preferred != currentIP {
+		t.Fatalf("preferred lease = %s, want %s", preferred, currentIP)
+	}
+	got := tracker.Snapshot()
+	if len(got.Hosts) != 1 {
+		t.Fatalf("host count = %d, want 1: %+v", len(got.Hosts), got.Hosts)
+	}
+	if len(got.Hosts[0].Addresses) != 1 ||
+		got.Hosts[0].Addresses[0].IP != currentIP {
+		t.Fatalf("inactive previous IP is still visible: %+v",
+			got.Hosts[0].Addresses)
+	}
+	if len(tracker.profiles[id].Addresses) != 2 {
+		t.Fatalf("retained profile lost historical addresses: %+v",
+			tracker.profiles[id].Addresses)
+	}
+
+	// A live conntrack flow is direct evidence that an address is still in
+	// active use, even when its neighbor entry has become STALE.
+	tracker.hosts[oldIP] = model.Host{
+		IP: oldIP, MAC: mac, ActiveFlows: 1, LastSeen: now,
+	}
+	got = tracker.Snapshot()
+	if len(got.Hosts[0].Addresses) != 2 {
+		t.Fatalf("actively used address was filtered out: %+v",
+			got.Hosts[0].Addresses)
+	}
+}
+
+func TestReadLeasesSkipsExpiredAddresses(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "dhcp.leases")
+	mac := "02:11:22:33:44:55"
+	currentExpiry := time.Now().Add(time.Hour).Unix()
+	content := strings.Join([]string{
+		"1 " + mac + " 192.168.10.23 moved-vm *",
+		strconv.FormatInt(currentExpiry, 10) + " " + mac +
+			" 192.168.20.23 moved-vm *",
+	}, "\n") + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	leases := readLeases(path)
+	if len(leases) != 1 {
+		t.Fatalf("lease count = %d, want 1: %+v", len(leases), leases)
+	}
+	if _, found := leases["192.168.10.23"]; found {
+		t.Fatalf("expired address was retained: %+v", leases)
+	}
+	if current := leasesByMAC(leases)[mac]; current.IP != "192.168.20.23" {
+		t.Fatalf("current lease = %+v, want 192.168.20.23", current)
 	}
 }
 

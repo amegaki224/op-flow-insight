@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -51,8 +52,10 @@ type Tracker struct {
 }
 
 type lease struct {
-	Hostname string
-	MAC      string
+	IP        string
+	Hostname  string
+	MAC       string
+	ExpiresAt int64
 }
 
 const leaseRefreshInterval = 2 * time.Second
@@ -503,9 +506,14 @@ func readLeases(path string) map[string]lease {
 	if err != nil {
 		return out
 	}
+	now := time.Now().Unix()
 	for _, line := range strings.Split(string(raw), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 4 {
+			continue
+		}
+		expiresAt, _ := strconv.ParseInt(fields[0], 10, 64)
+		if expiresAt > 0 && expiresAt <= now {
 			continue
 		}
 		ip := fields[2]
@@ -516,7 +524,10 @@ func readLeases(path string) map[string]lease {
 		if hostname == "*" {
 			hostname = ""
 		}
-		out[ip] = lease{Hostname: hostname, MAC: strings.ToUpper(fields[1])}
+		out[ip] = lease{
+			IP: ip, Hostname: hostname, MAC: strings.ToUpper(fields[1]),
+			ExpiresAt: expiresAt,
+		}
 	}
 	return out
 }

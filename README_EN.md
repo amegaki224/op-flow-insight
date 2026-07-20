@@ -34,6 +34,8 @@ explainable 0–100 risk score for remote IP addresses.
 - DHCP hostname changes propagate to the live list and retained history in
   about two seconds. History queries and TXT exports use the latest name at
   query or export time.
+- The LAN host list shows only currently valid or actively used addresses.
+  Previous subnet addresses remain in retained history but not in the live row.
 - Automatic exclusion of the router's own interface addresses.
 - Fully offline country/region, ASN, and network organization lookup for remote
   IPs; visited IPs are not sent to an online lookup API.
@@ -102,7 +104,7 @@ and install it. Locally built packages are not signed by the official OpenWrt
 repository, so installation must explicitly allow an untrusted local package:
 
 ```sh
-apk add --allow-untrusted ./op-flow-insight-0.1.1-r9.apk
+apk add --allow-untrusted ./op-flow-insight-0.1.1-r10.apk
 /etc/init.d/op-flow enable
 /etc/init.d/op-flow restart
 ```
@@ -111,10 +113,10 @@ Install one optional translation package for the selected LuCI language:
 
 ```sh
 # Simplified Chinese
-apk add --allow-untrusted ./luci-i18n-op-flow-zh-cn-0.1.1-r9.apk
+apk add --allow-untrusted ./luci-i18n-op-flow-zh-cn-0.1.1-r10.apk
 
 # Japanese
-apk add --allow-untrusted ./luci-i18n-op-flow-ja-0.1.1-r9.apk
+apk add --allow-untrusted ./luci-i18n-op-flow-ja-0.1.1-r10.apk
 ```
 
 Open **Status → Flow Insight** in LuCI. After the first installation, click
@@ -136,10 +138,10 @@ logread -e op-flow
 ImmortalWrt 24.10.x still uses opkg/IPK:
 
 ```sh
-opkg install ./op-flow-insight_0.1.1-r9_x86_64.ipk
+opkg install ./op-flow-insight_0.1.1-r10_x86_64.ipk
 # Optional: choose Simplified Chinese or Japanese
-opkg install ./luci-i18n-op-flow-zh-cn_0.1.1-r9_all.ipk
-# opkg install ./luci-i18n-op-flow-ja_0.1.1-r9_all.ipk
+opkg install ./luci-i18n-op-flow-zh-cn_0.1.1-r10_all.ipk
+# opkg install ./luci-i18n-op-flow-ja_0.1.1-r10_all.ipk
 /etc/init.d/op-flow enable
 /etc/init.d/op-flow restart
 ```
