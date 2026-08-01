@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/op-flow-insight/op-flow-insight/internal/config"
@@ -23,6 +24,7 @@ import (
 type Tracker struct {
 	mu                 sync.RWMutex
 	saveMu             sync.Mutex
+	cachedSnapshot     atomic.Value
 	cfg                config.Config
 	data               *dataset.Manager
 	hosts              map[string]model.Host
@@ -59,6 +61,7 @@ type lease struct {
 }
 
 const leaseRefreshInterval = 2 * time.Second
+const minimumBaselineRetention = 30 * time.Second
 
 func New(cfg config.Config, data *dataset.Manager, version string) (*Tracker, error) {
 	persisted, err := store.Load(cfg.StateFile)
@@ -95,6 +98,10 @@ func New(cfg config.Config, data *dataset.Manager, version string) (*Tracker, er
 		tracker.health.Warnings = append(tracker.health.Warnings,
 			"Cumulative state file is damaged; restarted from current connections: "+err.Error())
 	}
+	// Keep a complete initial response available before the first collector
+	// poll. Snapshot() will refresh this cache whenever it can acquire the
+	// tracker read lock without waiting.
+	tracker.Snapshot()
 	return tracker, nil
 }
 
@@ -151,8 +158,9 @@ func (t *Tracker) Poll(r io.Reader, now time.Time) {
 		)
 	}
 
+	initialPoll := t.lastPoll.IsZero()
 	elapsed := t.cfg.PollInterval.Seconds()
-	if !t.lastPoll.IsZero() && now.After(t.lastPoll) {
+	if !initialPoll && now.After(t.lastPoll) {
 		elapsed = now.Sub(t.lastPoll).Seconds()
 	}
 	if elapsed <= 0 {
@@ -174,7 +182,7 @@ func (t *Tracker) Poll(r io.Reader, now time.Time) {
 		t.hosts[ip] = host
 	}
 
-	nextActive := make(map[string]store.Baseline, len(parsed.Connections))
+	observed := make(map[string]bool, len(parsed.Connections))
 	flows := make([]model.Flow, 0, len(parsed.Connections))
 	var totalUpRate, totalDownRate float64
 	for _, conn := range parsed.Connections {
@@ -182,9 +190,12 @@ func (t *Tracker) Poll(r io.Reader, now time.Time) {
 		if !ok {
 			continue
 		}
-		previous, seen := t.active[conn.Key()]
-		upDelta := counterDelta(classified.uploaded, previous.Uploaded, seen)
-		downDelta := counterDelta(classified.downloaded, previous.Download, seen)
+		key, previous, seen := t.connectionBaselineLocked(conn)
+		upDelta, downDelta := uint64(0), uint64(0)
+		if seen || !initialPoll {
+			upDelta = counterDelta(classified.uploaded, previous.Uploaded, seen)
+			downDelta = counterDelta(classified.downloaded, previous.Download, seen)
+		}
 		upRate := float64(upDelta) / elapsed
 		downRate := float64(downDelta) / elapsed
 
@@ -232,10 +243,11 @@ func (t *Tracker) Poll(r io.Reader, now time.Time) {
 			Risk:        risk,
 		}
 		flows = append(flows, flow)
-		nextActive[conn.Key()] = store.Baseline{
+		t.active[key] = store.Baseline{
 			HostIP: host.IP, Uploaded: classified.uploaded,
 			Download: classified.downloaded, LastSeen: now,
 		}
+		observed[key] = true
 	}
 	sort.Slice(flows, func(i, j int) bool {
 		left := flows[i].UploadBPS + flows[i].DownloadBPS
@@ -248,7 +260,16 @@ func (t *Tracker) Poll(r io.Reader, now time.Time) {
 	if len(flows) > t.cfg.MaxFlows {
 		flows = flows[:t.cfg.MaxFlows]
 	}
-	t.active = nextActive
+	// Keep recently absent entries long enough for a delayed ctnetlink destroy
+	// event to reconcile against the last sampled counters. Removing a baseline
+	// immediately caused the destroy event to import the connection's complete
+	// byte counters for a second time.
+	cutoff := now.Add(-t.baselineRetention())
+	for key, baseline := range t.active {
+		if !observed[key] && baseline.LastSeen.Before(cutoff) {
+			delete(t.active, key)
+		}
+	}
 	t.flows = flows
 	if t.lastHistory.IsZero() || now.Sub(t.lastHistory) >= 5*time.Second {
 		t.history = append(t.history, model.RatePoint{
@@ -261,9 +282,9 @@ func (t *Tracker) Poll(r io.Reader, now time.Time) {
 	}
 }
 
-// ApplyDestroy reconciles the final counters emitted by ctnetlink. Keeping the
-// final baseline until the next poll prevents a stale /proc snapshot from
-// counting the same connection twice.
+// ApplyDestroy reconciles the final counters emitted by ctnetlink. Final
+// baselines are retained for a grace period so delayed or duplicate events and
+// stale /proc snapshots cannot count the same connection twice.
 func (t *Tracker) ApplyDestroy(conn conntrack.Connection) {
 	if !conn.HasBytes {
 		return
@@ -276,7 +297,7 @@ func (t *Tracker) ApplyDestroy(conn conntrack.Connection) {
 	if !ok {
 		return
 	}
-	previous, seen := t.active[conn.Key()]
+	key, previous, seen := t.connectionBaselineLocked(conn)
 	upDelta := counterDelta(classified.uploaded, previous.Uploaded, seen)
 	downDelta := counterDelta(classified.downloaded, previous.Download, seen)
 	host := t.hosts[classified.host.String()]
@@ -294,10 +315,33 @@ func (t *Tracker) ApplyDestroy(conn conntrack.Connection) {
 	t.hosts[host.IP] = host
 	t.rememberProfileLocked(hostID, host, classified.host, now)
 	t.recordUsageLocked(now, hostID, upDelta, downDelta)
-	t.active[conn.Key()] = store.Baseline{
+	t.active[key] = store.Baseline{
 		HostIP: host.IP, Uploaded: classified.uploaded,
 		Download: classified.downloaded, LastSeen: now,
 	}
+}
+
+func (t *Tracker) connectionBaselineLocked(
+	conn conntrack.Connection,
+) (string, store.Baseline, bool) {
+	key := conn.Key()
+	if baseline, found := t.active[key]; found {
+		return key, baseline, true
+	}
+	legacyKey := conn.LegacyKey()
+	if baseline, found := t.active[legacyKey]; found {
+		delete(t.active, legacyKey)
+		return key, baseline, true
+	}
+	return key, store.Baseline{}, false
+}
+
+func (t *Tracker) baselineRetention() time.Duration {
+	retention := 3 * t.cfg.PollInterval
+	if retention < minimumBaselineRetention {
+		return minimumBaselineRetention
+	}
+	return retention
 }
 
 func (t *Tracker) SetDestroyEventHealth(active bool, err error) {
@@ -412,8 +456,27 @@ func counterDelta(current, previous uint64, seen bool) uint64 {
 }
 
 func (t *Tracker) Snapshot() model.Dashboard {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+	// Poll() deliberately updates a complete interval under the write lock so
+	// hosts, totals and flows stay mutually consistent. A large conntrack table
+	// can make that interval noticeably longer, though. Blocking an rpcd helper
+	// behind the writer also blocks LuCI XHRs and can eventually starve LuCI
+	// authentication. Return the most recent complete snapshot while a poll is
+	// in progress instead of waiting on the collector lock.
+	if t.mu.TryRLock() {
+		snapshot := t.snapshotLocked()
+		t.mu.RUnlock()
+		t.cachedSnapshot.Store(snapshot)
+		return snapshot
+	}
+	if cached := t.cachedSnapshot.Load(); cached != nil {
+		return cached.(model.Dashboard)
+	}
+	// New() primes the cache, so this is only a defensive fallback for a
+	// zero-value Tracker used outside the normal construction path.
+	return model.Dashboard{GeneratedAt: time.Now().UTC()}
+}
+
+func (t *Tracker) snapshotLocked() model.Dashboard {
 	hosts := t.onlineHostsLocked()
 	var totals model.Totals
 	for _, host := range t.hosts {
@@ -494,6 +557,15 @@ func (t *Tracker) ResetCounters() error {
 		host.Downloaded = 0
 		host.CounterResetAt = now
 		t.hosts[key] = host
+	}
+	// A manual reset is also the administrator's recovery path for counters
+	// accumulated by an older buggy release. Remove only the current local
+	// month's retained daily buckets so overview totals, history and exports all
+	// restart from the same clean point; previous months remain untouched.
+	for day := range t.daily {
+		if strings.HasPrefix(day, t.currentMonth+"-") {
+			delete(t.daily, day)
+		}
 	}
 	t.history = nil
 	t.mu.Unlock()

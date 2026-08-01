@@ -18,6 +18,7 @@ import (
 
 	"github.com/op-flow-insight/op-flow-insight/internal/collector"
 	"github.com/op-flow-insight/op-flow-insight/internal/dataset"
+	"github.com/op-flow-insight/op-flow-insight/internal/model"
 )
 
 type Coordinator struct {
@@ -97,8 +98,28 @@ func (a *API) Handler() http.Handler {
 	return securityHeaders(mux)
 }
 
-func (a *API) dashboard(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, a.tracker.Snapshot())
+func (a *API) dashboard(w http.ResponseWriter, r *http.Request) {
+	snapshot := a.tracker.Snapshot()
+	// The LuCI overview does not need hundreds of connection records every two
+	// seconds. When host_id is present, return only that host's detail; an empty
+	// host_id explicitly requests the lightweight overview. Requests without
+	// the parameter retain the full dashboard for CLI/API compatibility.
+	if values, filtered := r.URL.Query()["host_id"]; filtered {
+		hostID := ""
+		if len(values) > 0 {
+			hostID = values[0]
+		}
+		flows := make([]model.Flow, 0)
+		if hostID != "" {
+			for _, flow := range snapshot.Flows {
+				if flow.HostID == hostID {
+					flows = append(flows, flow)
+				}
+			}
+		}
+		snapshot.Flows = flows
+	}
+	writeJSON(w, http.StatusOK, snapshot)
 }
 
 func (a *API) health(w http.ResponseWriter, _ *http.Request) {
@@ -206,6 +227,12 @@ func Ctl(ctx context.Context, socketPath, action string, args []string, output i
 	switch action {
 	case "dashboard":
 		path = "/v1/dashboard"
+		if len(args) > 1 {
+			return errors.New("dashboard accepts at most one host ID")
+		}
+		if len(args) == 1 {
+			path += "?host_id=" + url.QueryEscape(args[0])
+		}
 	case "health":
 		path = "/v1/health"
 	case "lookup":
@@ -232,7 +259,10 @@ func Ctl(ctx context.Context, socketPath, action string, args []string, output i
 			return (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, "unix", socketPath)
 		},
 	}
-	client := &http.Client{Transport: transport, Timeout: 30 * time.Second}
+	// LuCI's XHR timeout is shorter than the old 30 second client timeout.
+	// Fail fast so an unhealthy daemon cannot leave rpcd helper processes
+	// accumulating after the browser has already abandoned the request.
+	client := &http.Client{Transport: transport, Timeout: 8 * time.Second}
 	req, err := http.NewRequestWithContext(ctx, method, "http://unix"+path, nil)
 	if err != nil {
 		return err

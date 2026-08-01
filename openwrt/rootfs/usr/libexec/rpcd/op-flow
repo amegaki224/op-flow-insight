@@ -6,7 +6,7 @@ DAEMON=/usr/sbin/op-flowd
 case "$1" in
 	list)
 		printf '%s\n' '{
-			"dashboard": {},
+			"dashboard": { "host_id": "String" },
 			"health": {},
 			"lookup": { "ip": "String" },
 			"history": {
@@ -23,7 +23,12 @@ case "$1" in
 		;;
 	call)
 		case "$2" in
-			dashboard|health|update|reset)
+			dashboard)
+				input="$(cat)"
+				host_id="$(printf '%s' "$input" | jsonfilter -e '@.host_id')"
+				exec "$DAEMON" -config "$CONFIG" ctl dashboard "$host_id"
+				;;
+			health|update|reset)
 				exec "$DAEMON" -config "$CONFIG" ctl "$2"
 				;;
 			lookup)

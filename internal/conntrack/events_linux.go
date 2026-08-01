@@ -21,6 +21,7 @@ const (
 	ctaTupleReply    = 2
 	ctaCountersOrig  = 9
 	ctaCountersReply = 10
+	ctaZone          = 18
 
 	ctaTupleIP    = 1
 	ctaTupleProto = 2
@@ -125,10 +126,14 @@ func parseDestroyMessage(payload []byte) (Connection, bool) {
 	if !ok1 || !ok2 || !ok3 || !ok4 {
 		return Connection{}, false
 	}
-	return Connection{
+	conn := Connection{
 		Family: familyName(family), Protocol: protocolName(proto),
 		Original: orig, Reply: reply, HasBytes: true,
-	}, true
+	}
+	if zone, found := firstAttr(attrs, ctaZone); found && len(zone) >= 2 {
+		conn.Zone = binary.BigEndian.Uint16(zone[:2])
+	}
+	return conn, true
 }
 
 func parseTuple(raw []byte, family byte) (Tuple, byte, bool) {

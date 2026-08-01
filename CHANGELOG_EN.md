@@ -9,6 +9,38 @@ are therefore published as historical binary archives. GitHub's automatically
 generated “Source code” archives do not represent those older versions.
 Starting with `r5`, release tags correspond to source commits.
 
+## 0.1.1-r11
+
+- Fixes repeated visits to the monitoring page timing out with
+  `XHR request timed out`, remaining stuck while loading, and potentially
+  exhausting `rpcd` until LuCI redirects to a login page that cannot respond.
+- While a collector poll holds the write lock, Web/RPC returns the latest
+  complete snapshot immediately. Overview refreshes no longer transfer every
+  connection; selecting a host loads only that host's IPv4/IPv6 connections,
+  reducing ubus, `rpcd`, and browser load.
+- Makes `op-flowd ctl` a lightweight Unix-socket client. A two-second LuCI
+  refresh no longer reloads the complete offline attribution and risk database,
+  and failed backend calls release their RPC worker before the browser timeout.
+- Fixes a conntrack race that could count a connection's complete byte counters
+  again when its polling row disappeared before a delayed destroy event. Missing
+  baselines are retained for at least 30 seconds and duplicate destroy events are
+  idempotent.
+- Uses the first poll after daemon startup only to establish baselines for
+  existing connections, preventing traffic generated before plugin startup from
+  being imported into the current month. Subsequent polls count real deltas only.
+- Separates baseline keys by IPv4/IPv6 family and conntrack zone while migrating
+  saved r10 keys in place, avoiding a one-time recount during upgrade.
+- Manual counter reset also removes retained daily buckets for the current month
+  while preserving earlier months, allowing polluted totals and exports to
+  restart from a clean baseline.
+- Fixes APK upgrades leaving the service `active with no instances` and the
+  dashboard returning `No response`. The install hook reads `option enabled`
+  from `/etc/config/op-flow`, automatically enabling/restarting the configured
+  service while respecting an explicit off.
+- Adds regression coverage for initial baselines, delayed/duplicate destroy
+  events, connection-key isolation, non-blocking snapshots, and host-filtered
+  dashboard responses.
+
 ## 0.1.1-r10
 
 - Fixes the LAN host list showing both a previous IP and the current IP after

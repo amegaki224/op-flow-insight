@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=op-flow-insight
 PKG_VERSION:=0.1.1
-PKG_RELEASE:=10
+PKG_RELEASE:=11
 
 PKG_LICENSE:=MIT
 PKG_LICENSE_FILES:=LICENSE
@@ -116,6 +116,14 @@ define Package/op-flow-insight/postinst
 [ -n "$$IPKG_INSTROOT" ] && exit 0
 rm -f /tmp/luci-indexcache.*
 rm -rf /tmp/luci-modulecache/
+enabled="$$(uci -q get op-flow.main.enabled)"
+case "$${enabled:-1}" in
+	0|false|no|off) ;;
+	*)
+		/etc/init.d/op-flow enable >/dev/null 2>&1 || true
+		/etc/init.d/op-flow restart >/dev/null 2>&1 || true
+		;;
+esac
 /etc/init.d/rpcd restart >/dev/null 2>&1 || true
 exit 0
 endef

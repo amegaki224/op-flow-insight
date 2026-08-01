@@ -81,7 +81,7 @@ func TestDelegatedGlobalIPv6TrafficIsAccounted(t *testing.T) {
 	tracker.Poll(strings.NewReader(second), now.Add(2*time.Second))
 
 	got := tracker.Snapshot()
-	if got.Totals.Uploaded != 3000 || got.Totals.Downloaded != 18000 {
+	if got.Totals.Uploaded != 2000 || got.Totals.Downloaded != 10000 {
 		t.Fatalf("unexpected IPv6 totals: %+v", got.Totals)
 	}
 	if got.Totals.UploadBPS != 1000 || got.Totals.DownloadBPS != 5000 {

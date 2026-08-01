@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"github.com/op-flow-insight/op-flow-insight/internal/config"
+	"github.com/op-flow-insight/op-flow-insight/internal/conntrack"
 	"github.com/op-flow-insight/op-flow-insight/internal/dataset"
 	"github.com/op-flow-insight/op-flow-insight/internal/model"
+	"github.com/op-flow-insight/op-flow-insight/internal/store"
 )
 
 func TestCumulativeDeltas(t *testing.T) {
@@ -29,7 +31,7 @@ func TestCumulativeDeltas(t *testing.T) {
 	tracker.Poll(strings.NewReader(first), now)
 	tracker.Poll(strings.NewReader(second), now.Add(2*time.Second))
 	got := tracker.Snapshot()
-	if got.Totals.Uploaded != 150 || got.Totals.Downloaded != 1200 {
+	if got.Totals.Uploaded != 50 || got.Totals.Downloaded != 200 {
 		t.Fatalf("unexpected totals: %+v", got.Totals)
 	}
 	if got.Totals.UploadBPS != 25 || got.Totals.DownloadBPS != 100 {
@@ -40,13 +42,85 @@ func TestCumulativeDeltas(t *testing.T) {
 	}
 }
 
+func TestSnapshotReturnsCachedDashboardWhilePollLockIsHeld(t *testing.T) {
+	cfg := config.Default()
+	cfg.StateFile = filepath.Join(t.TempDir(), "state.json")
+	tracker, err := New(cfg, dataset.NewManager(t.TempDir()), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tracker.hosts = map[string]model.Host{
+		"192.168.1.20": {
+			IP: "192.168.1.20", Online: true, ActiveFlows: 1,
+			Downloaded: 1234,
+		},
+	}
+	fresh := tracker.Snapshot()
+	if fresh.Totals.Downloaded != 1234 {
+		t.Fatalf("fresh downloaded = %d, want 1234", fresh.Totals.Downloaded)
+	}
+
+	tracker.mu.Lock()
+	started := time.Now()
+	cached := tracker.Snapshot()
+	elapsed := time.Since(started)
+	tracker.mu.Unlock()
+
+	if elapsed > 100*time.Millisecond {
+		t.Fatalf("cached Snapshot blocked for %s while poll lock was held", elapsed)
+	}
+	if cached.Totals.Downloaded != fresh.Totals.Downloaded ||
+		!cached.GeneratedAt.Equal(fresh.GeneratedAt) {
+		t.Fatalf("cached snapshot changed: fresh=%+v cached=%+v", fresh, cached)
+	}
+}
+
+func TestResetCountersClearsOnlyCurrentMonthHistory(t *testing.T) {
+	cfg := config.Default()
+	cfg.StateFile = filepath.Join(t.TempDir(), "state.json")
+	tracker, err := New(cfg, dataset.NewManager(t.TempDir()), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentDay := tracker.currentMonth + "-01"
+	localNow := time.Now().In(time.Local)
+	previousDay := time.Date(
+		localNow.Year(), localNow.Month(), 1, 0, 0, 0, 0, time.Local,
+	).AddDate(0, -1, 0).Format("2006-01-02")
+	tracker.hosts["192.168.1.20"] = model.Host{
+		IP: "192.168.1.20", Uploaded: 100, Downloaded: 200,
+	}
+	tracker.daily[currentDay] = map[string]model.TrafficUsage{
+		"ip:192.168.1.20": {Uploaded: 100, Downloaded: 200},
+	}
+	tracker.daily[previousDay] = map[string]model.TrafficUsage{
+		"ip:192.168.1.20": {Uploaded: 300, Downloaded: 400},
+	}
+
+	if err := tracker.ResetCounters(); err != nil {
+		t.Fatal(err)
+	}
+	if _, found := tracker.daily[currentDay]; found {
+		t.Fatalf("current month history %q was not cleared", currentDay)
+	}
+	if _, found := tracker.daily[previousDay]; !found {
+		t.Fatalf("previous month history %q was removed", previousDay)
+	}
+	host := tracker.hosts["192.168.1.20"]
+	if host.Uploaded != 0 || host.Downloaded != 0 {
+		t.Fatalf("host counters were not reset: %+v", host)
+	}
+}
+
 func TestDNATInbound(t *testing.T) {
 	cfg := config.Default()
 	cfg.StateFile = filepath.Join(t.TempDir(), "state.json")
 	cfg.LANPrefixes = []netip.Prefix{netip.MustParsePrefix("192.168.1.0/24")}
 	tracker, _ := New(cfg, dataset.NewManager(t.TempDir()), "test")
 	line := "ipv4 2 tcp 6 100 ESTABLISHED src=203.0.113.8 dst=198.51.100.10 sport=40000 dport=443 packets=4 bytes=800 src=192.168.1.50 dst=203.0.113.8 sport=8443 dport=40000 packets=3 bytes=600 [ASSURED]\n"
-	tracker.Poll(strings.NewReader(line), time.Now().UTC())
+	now := time.Now().UTC()
+	tracker.lastPoll = now.Add(-cfg.PollInterval)
+	tracker.Poll(strings.NewReader(line), now)
 	got := tracker.Snapshot()
 	if len(got.Flows) != 1 || got.Flows[0].HostIP != "192.168.1.50" || got.Flows[0].Direction != "inbound" {
 		t.Fatalf("unexpected flow: %+v", got.Flows)
@@ -119,6 +193,7 @@ func TestIPv4AndIPv6MergeByMAC(t *testing.T) {
 	}
 	tracker.lanDevices["br-lan"] = true
 	tracker.lastLeaseRead = now
+	tracker.lastPoll = now.Add(-cfg.PollInterval)
 
 	fixture := strings.Join([]string{
 		"ipv4 2 tcp 6 100 ESTABLISHED src=192.168.1.23 dst=1.1.1.1 sport=50000 dport=443 packets=1 bytes=100 src=1.1.1.1 dst=192.168.1.23 sport=443 dport=50000 packets=2 bytes=1000 [ASSURED]",
@@ -279,6 +354,7 @@ func TestHostnameChangeRefreshesOnlineAndRetainedViews(t *testing.T) {
 	}
 
 	now := time.Now().UTC()
+	tracker.lastPoll = now.Add(-cfg.PollInterval)
 	fixture := "ipv4 2 tcp 6 100 ESTABLISHED src=192.168.1.23 dst=1.1.1.1 sport=50000 dport=443 packets=1 bytes=100 src=1.1.1.1 dst=192.168.1.23 sport=443 dport=50000 packets=2 bytes=1000 [ASSURED]\n"
 	tracker.Poll(strings.NewReader(fixture), now)
 	if got := tracker.Snapshot(); len(got.Hosts) != 1 ||
@@ -325,6 +401,7 @@ func TestOfflineHostIsHiddenAndUsageResumes(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
+	tracker.lastPoll = now.Add(-cfg.PollInterval)
 	first := "ipv4 2 tcp 6 100 ESTABLISHED src=192.168.1.50 dst=1.1.1.1 sport=50000 dport=443 packets=1 bytes=100 src=1.1.1.1 dst=192.168.1.50 sport=443 dport=50000 packets=2 bytes=1000 [ASSURED]\n"
 	tracker.Poll(strings.NewReader(first), now)
 	if got := tracker.Snapshot(); len(got.Hosts) != 1 {
@@ -360,6 +437,7 @@ func TestMonthlyRolloverPreservesConnectionBaseline(t *testing.T) {
 	}
 	january := time.Date(2026, time.January, 31, 23, 59, 58, 0, time.Local)
 	tracker.currentMonth = "2026-01"
+	tracker.lastPoll = january.Add(-cfg.PollInterval)
 	first := "ipv4 2 tcp 6 100 ESTABLISHED src=192.168.1.60 dst=1.1.1.1 sport=50000 dport=443 packets=1 bytes=1000 src=1.1.1.1 dst=192.168.1.60 sport=443 dport=50000 packets=2 bytes=10000 [ASSURED]\n"
 	second := "ipv4 2 tcp 6 98 ESTABLISHED src=192.168.1.60 dst=1.1.1.1 sport=50000 dport=443 packets=2 bytes=1300 src=1.1.1.1 dst=192.168.1.60 sport=443 dport=50000 packets=3 bytes=12000 [ASSURED]\n"
 	tracker.Poll(strings.NewReader(first), january)
@@ -378,5 +456,67 @@ func TestMonthlyRolloverPreservesConnectionBaseline(t *testing.T) {
 		februaryUsage.Uploaded != 300 || februaryUsage.Downloaded != 2000 {
 		t.Fatalf("unexpected daily split: january=%+v february=%+v",
 			januaryUsage, februaryUsage)
+	}
+}
+
+func TestDelayedDestroyEventDoesNotRecountWholeConnection(t *testing.T) {
+	cfg := config.Default()
+	cfg.StateFile = filepath.Join(t.TempDir(), "state.json")
+	cfg.LANPrefixes = []netip.Prefix{netip.MustParsePrefix("192.168.1.0/24")}
+	tracker, err := New(cfg, dataset.NewManager(t.TempDir()), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	tracker.lastPoll = now.Add(-cfg.PollInterval)
+	first := "ipv4 2 tcp 6 100 ESTABLISHED src=192.168.1.23 dst=1.1.1.1 sport=50000 dport=443 packets=1 bytes=100 src=1.1.1.1 dst=192.168.1.23 sport=443 dport=50000 packets=2 bytes=1000 [ASSURED]\n"
+	final := "ipv4 2 tcp 6 0 TIME_WAIT src=192.168.1.23 dst=1.1.1.1 sport=50000 dport=443 packets=2 bytes=150 src=1.1.1.1 dst=192.168.1.23 sport=443 dport=50000 packets=3 bytes=1200 [ASSURED]\n"
+
+	tracker.Poll(strings.NewReader(first), now)
+	// The /proc row disappears before the destroy notification is delivered.
+	tracker.Poll(strings.NewReader(""), now.Add(cfg.PollInterval))
+	conn, ok := conntrack.ParseLine(strings.TrimSpace(final))
+	if !ok {
+		t.Fatal("failed to parse final conntrack fixture")
+	}
+	tracker.ApplyDestroy(conn)
+	tracker.ApplyDestroy(conn) // Duplicate destroy notifications must be harmless.
+
+	got := tracker.Snapshot()
+	if got.Totals.Uploaded != 150 || got.Totals.Downloaded != 1200 {
+		t.Fatalf("destroy event recounted the connection: %+v", got.Totals)
+	}
+}
+
+func TestLegacyR10BaselineMigratesWithoutRecount(t *testing.T) {
+	cfg := config.Default()
+	cfg.StateFile = filepath.Join(t.TempDir(), "state.json")
+	cfg.LANPrefixes = []netip.Prefix{netip.MustParsePrefix("192.168.1.0/24")}
+	tracker, err := New(cfg, dataset.NewManager(t.TempDir()), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	line := "ipv4 2 tcp 6 98 ESTABLISHED src=192.168.1.23 dst=1.1.1.1 sport=50000 dport=443 packets=2 bytes=150 src=1.1.1.1 dst=192.168.1.23 sport=443 dport=50000 packets=3 bytes=1200 [ASSURED]\n"
+	conn, ok := conntrack.ParseLine(strings.TrimSpace(line))
+	if !ok {
+		t.Fatal("failed to parse conntrack fixture")
+	}
+	tracker.active[conn.LegacyKey()] = store.Baseline{
+		HostIP: "192.168.1.23", Uploaded: 100, Download: 1000,
+		LastSeen: now.Add(-cfg.PollInterval),
+	}
+	tracker.lastPoll = now.Add(-cfg.PollInterval)
+	tracker.Poll(strings.NewReader(line), now)
+
+	got := tracker.Snapshot()
+	if got.Totals.Uploaded != 50 || got.Totals.Downloaded != 200 {
+		t.Fatalf("legacy baseline was recounted: %+v", got.Totals)
+	}
+	if _, found := tracker.active[conn.LegacyKey()]; found {
+		t.Fatal("legacy baseline key was not removed")
+	}
+	if _, found := tracker.active[conn.Key()]; !found {
+		t.Fatal("current baseline key was not installed")
 	}
 }

@@ -22,12 +22,27 @@ type Connection struct {
 	Family   string
 	Protocol string
 	State    string
+	Zone     uint16
 	Original Tuple
 	Reply    Tuple
 	HasBytes bool
 }
 
 func (c Connection) Key() string {
+	return fmt.Sprintf("%s|%d|%s|%s|%s|%d|%d",
+		c.Family,
+		c.Zone,
+		c.Protocol,
+		c.Original.Source,
+		c.Original.Destination,
+		c.Original.SourcePort,
+		c.Original.DestPort,
+	)
+}
+
+// LegacyKey allows active r10 baselines to migrate without importing the
+// current byte counters again during an in-place upgrade.
+func (c Connection) LegacyKey() string {
 	return fmt.Sprintf("%s|%s|%s|%d|%d",
 		c.Protocol,
 		c.Original.Source,
@@ -95,6 +110,10 @@ func ParseLine(line string) (Connection, bool) {
 	for _, field := range fields {
 		key, value, found := strings.Cut(field, "=")
 		if !found {
+			continue
+		}
+		if key == "zone" {
+			conn.Zone = parseUint16(value)
 			continue
 		}
 		if key == "src" {

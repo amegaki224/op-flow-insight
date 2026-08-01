@@ -29,3 +29,27 @@ func TestParseIPv6UDP(t *testing.T) {
 		t.Fatalf("unexpected result: %+v", result)
 	}
 }
+
+func TestConnectionKeySeparatesFamilyAndZone(t *testing.T) {
+	base := "ipv4 2 tcp 6 20 src=192.168.1.2 dst=1.1.1.1 sport=50000 dport=443 packets=1 bytes=10 src=1.1.1.1 dst=192.168.1.2 sport=443 dport=50000 packets=1 bytes=20 zone=7"
+	conn, ok := ParseLine(base)
+	if !ok {
+		t.Fatal("expected valid connection")
+	}
+	if conn.Zone != 7 {
+		t.Fatalf("zone = %d, want 7", conn.Zone)
+	}
+	other := conn
+	other.Family = "ipv6"
+	if conn.Key() == other.Key() {
+		t.Fatal("address families shared a connection key")
+	}
+	other = conn
+	other.Zone = 8
+	if conn.Key() == other.Key() {
+		t.Fatal("conntrack zones shared a connection key")
+	}
+	if conn.LegacyKey() == conn.Key() {
+		t.Fatal("legacy and current key formats unexpectedly match")
+	}
+}

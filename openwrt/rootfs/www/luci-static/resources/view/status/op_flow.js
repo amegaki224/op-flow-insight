@@ -7,6 +7,7 @@
 var callDashboard = rpc.declare({
 	object: 'op-flow',
 	method: 'dashboard',
+	params: [ 'host_id' ],
 	expect: {}
 });
 
@@ -51,7 +52,7 @@ function ensureStyles() {
 		stylesheet.id = 'op-flow-insight-stylesheet';
 		stylesheet.rel = 'stylesheet';
 		stylesheet.type = 'text/css';
-		stylesheet.href = L.resource('op-flow.css') + '?v=0.1.1-r10';
+		stylesheet.href = L.resource('op-flow.css') + '?v=0.1.1-r11';
 		document.head.appendChild(stylesheet);
 	}
 	return stylesheet;
@@ -513,7 +514,7 @@ function darkThemeActive() {
 }
 return view.extend({
 	load: function() {
-		return callDashboard().catch(function(err) {
+		return callDashboard('').catch(function(err) {
 			return { error: err.message || String(err) };
 		});
 	},
@@ -531,7 +532,8 @@ return view.extend({
 		this.historyRequestSerial = this.historyRequestSerial || 0;
 		this.renderData(data);
 		L.Poll.add(L.bind(function() {
-			return callDashboard().then(L.bind(this.renderData, this)).catch(function() {});
+			return callDashboard(this.selectedHostID || '')
+				.then(L.bind(this.renderData, this)).catch(function() {});
 		}, this), 2);
 		return this.root;
 	},
@@ -618,6 +620,9 @@ return view.extend({
 			self.activeTab = 'connections';
 			self.pendingDetailFocus = true;
 			self.renderData(self.lastData);
+			callDashboard(self.selectedHostID).then(
+				L.bind(self.renderData, self)
+			).catch(function() {});
 		};
 		var warnings = (health.warnings || []).map(function(item) {
 			return E('div', { 'class': 'alert-message warning' }, warningText(item));

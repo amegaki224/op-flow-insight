@@ -48,24 +48,28 @@ func run(args []string) error {
 		command = rest[0]
 		rest = rest[1:]
 	}
-	data := dataset.NewManager(cfg.DataDir)
-	_ = data.Reload()
-	updates := server.NewCoordinator(cfg.DataDir, data)
-
 	switch command {
-	case "daemon":
-		if !cfg.Enabled {
-			return nil
-		}
-		return runDaemon(cfg, data, updates)
 	case "ctl":
 		if len(rest) == 0 {
 			return fmt.Errorf("ctl requires dashboard, health, lookup, history, export, update, or reset")
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+		// The ctl process is only a small Unix-socket client. Loading the full
+		// offline IP database here made every LuCI refresh re-read all datasets,
+		// eventually piling up rpcd workers and blocking LuCI authentication.
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		return server.Ctl(ctx, cfg.SocketPath, rest[0], rest[1:], os.Stdout)
+	case "daemon":
+		if !cfg.Enabled {
+			return nil
+		}
+		data := dataset.NewManager(cfg.DataDir)
+		_ = data.Reload()
+		updates := server.NewCoordinator(cfg.DataDir, data)
+		return runDaemon(cfg, data, updates)
 	case "update-data":
+		data := dataset.NewManager(cfg.DataDir)
+		updates := server.NewCoordinator(cfg.DataDir, data)
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 		defer cancel()
 		if err := updates.UpdateSync(ctx); err != nil {
