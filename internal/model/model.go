@@ -145,6 +145,8 @@ type Dashboard struct {
 	Totals       Totals              `json:"totals"`
 	Hosts        []Host              `json:"hosts"`
 	Flows        []Flow              `json:"flows"`
+	FlowTotal    int                 `json:"flow_total,omitempty"`
+	FlowsLimited bool                `json:"flows_limited,omitempty"`
 	History      []RatePoint         `json:"history"`
 	UsagePeriods map[string][]string `json:"usage_periods,omitempty"`
 	Data         DataStatus          `json:"data"`

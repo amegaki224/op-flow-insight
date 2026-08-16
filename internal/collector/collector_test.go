@@ -75,6 +75,54 @@ func TestSnapshotReturnsCachedDashboardWhilePollLockIsHeld(t *testing.T) {
 	}
 }
 
+func TestUsageHistoryReturnsCachedResultWhilePollLockIsHeld(t *testing.T) {
+	cfg := config.Default()
+	cfg.StateFile = filepath.Join(t.TempDir(), "state.json")
+	tracker, err := New(cfg, dataset.NewManager(t.TempDir()), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	day := time.Now().In(time.Local).Format("2006-01-02")
+	hostID := "ip:192.168.1.20"
+	tracker.daily[day] = map[string]model.TrafficUsage{
+		hostID: {Uploaded: 123, Downloaded: 456},
+	}
+	tracker.profiles[hostID] = model.HostProfile{
+		ID: hostID, Hostname: "cached-host",
+	}
+	fresh, err := tracker.UsageHistory("month", tracker.currentMonth)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fresh.Totals.Downloaded != 456 {
+		t.Fatalf("fresh history = %+v", fresh.Totals)
+	}
+
+	period := tracker.currentMonth
+	tracker.mu.Lock()
+	result := make(chan model.UsageHistory, 1)
+	errors := make(chan error, 1)
+	go func() {
+		history, historyErr := tracker.UsageHistory("month", period)
+		result <- history
+		errors <- historyErr
+	}()
+	select {
+	case cached := <-result:
+		historyErr := <-errors
+		tracker.mu.Unlock()
+		if historyErr != nil {
+			t.Fatal(historyErr)
+		}
+		if cached.Totals.Downloaded != fresh.Totals.Downloaded {
+			t.Fatalf("cached history = %+v, want %+v", cached.Totals, fresh.Totals)
+		}
+	case <-time.After(100 * time.Millisecond):
+		tracker.mu.Unlock()
+		t.Fatal("cached UsageHistory blocked while poll lock was held")
+	}
+}
+
 func TestResetCountersClearsOnlyCurrentMonthHistory(t *testing.T) {
 	cfg := config.Default()
 	cfg.StateFile = filepath.Join(t.TempDir(), "state.json")

@@ -52,7 +52,7 @@ function ensureStyles() {
 		stylesheet.id = 'op-flow-insight-stylesheet';
 		stylesheet.rel = 'stylesheet';
 		stylesheet.type = 'text/css';
-		stylesheet.href = L.resource('op-flow.css') + '?v=0.1.1-r11';
+		stylesheet.href = L.resource('op-flow.css') + '?v=0.1.1-r12';
 		document.head.appendChild(stylesheet);
 	}
 	return stylesheet;
@@ -530,20 +530,31 @@ return view.extend({
 		this.historyGranularity = this.historyGranularity || 'month';
 		this.historyPeriod = this.historyPeriod || '';
 		this.historyRequestSerial = this.historyRequestSerial || 0;
+		this.historyFailedKey = this.historyFailedKey || '';
 		this.renderData(data);
 		L.Poll.add(L.bind(function() {
-			return callDashboard(this.selectedHostID || '')
+			// Connection details can be large. Fetch them only while their tab is
+			// visible; all other tabs use the compact overview response.
+			var hostID = this.activeTab === 'connections'
+				? (this.selectedHostID || '') : '';
+			return callDashboard(hostID)
 				.then(L.bind(this.renderData, this)).catch(function() {});
 		}, this), 2);
 		return this.root;
 	},
 
-	requestHistory: function(granularity, period) {
+	requestHistory: function(granularity, period, automatic) {
 		var options = ((this.lastData && this.lastData.usage_periods) || {})[
 			granularity
 		] || [];
 		period = period || options[0] || '';
 		if (!period) return Promise.resolve();
+		var requestKey = granularity + ':' + period;
+		// A tab render emits cbi-tab-active again. Do not turn one failed RPC
+		// into an unbounded retry loop that can exhaust rpcd and LuCI sessions.
+		if (automatic && this.historyFailedKey === requestKey)
+			return Promise.resolve();
+		if (!automatic) this.historyFailedKey = '';
 		this.historyGranularity = granularity;
 		this.historyPeriod = period;
 		this.historyLoading = true;
@@ -553,10 +564,12 @@ return view.extend({
 			if (serial !== this.historyRequestSerial) return;
 			this.historyData = result;
 			this.historyLoading = false;
+			this.historyFailedKey = '';
 			if (this.lastData) this.renderData(this.lastData);
 		}, this)).catch(L.bind(function(err) {
 			if (serial !== this.historyRequestSerial) return;
 			this.historyLoading = false;
+			this.historyFailedKey = requestKey;
 			ui.addNotification(null, E('p', {},
 				_('Unable to load retained traffic history:') + ' ' +
 				text(err && err.message, String(err))));
@@ -611,6 +624,12 @@ return view.extend({
 					? 'ipv6' : 'ipv4')) === 'ipv6';
 			})
 		};
+		var selectedFlowTotal = selectedHost
+			? Number(data.flow_total || selectedHost.active_flows || selectedFlows.length)
+			: 0;
+		var selectedFlowCount = data.flows_limited
+			? String(selectedFlows.length) + ' / ' + String(selectedFlowTotal)
+			: String(selectedFlowTotal);
 		var self = this;
 		var selectHost = function(host) {
 			self.selectedHostID = hostKey(host);
@@ -678,7 +697,7 @@ return view.extend({
 					E('span', {}, _('Current connections') + ' · ' +
 						text(selectedHost.hostname, _('Unnamed host'))),
 					E('small', { 'class': 'ofi-subtle' },
-						String(selectedFlows.length) + ' ' + _('active connections'))
+						selectedFlowCount + ' ' + _('active connections'))
 				]),
 				E('div', { 'class': 'ofi-detail-addresses' }, [
 					E('div', { 'class': 'ofi-address-list' },
@@ -820,9 +839,10 @@ return view.extend({
 				self.activeTab = entry[0];
 				if (entry[0] === 'history' && !self.historyLoading &&
 					(!self.historyData ||
-					self.historyData.granularity !== self.historyGranularity ||
-					self.historyData.period !== self.historyPeriod)) {
-					self.requestHistory(self.historyGranularity, self.historyPeriod);
+						self.historyData.granularity !== self.historyGranularity ||
+						self.historyData.period !== self.historyPeriod)) {
+					self.requestHistory(self.historyGranularity,
+						self.historyPeriod, true);
 				}
 			});
 		});

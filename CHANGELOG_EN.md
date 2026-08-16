@@ -9,6 +9,25 @@ are therefore published as historical binary archives. GitHub's automatically
 generated “Source code” archives do not represent those older versions.
 Starting with `r5`, release tags correspond to source commits.
 
+## 0.1.1-r12
+
+- Fixes the failure loop triggered by selecting a LAN host with hundreds of
+  connections and then opening Traffic History: repeated `Object not found`
+  RPC errors could exhaust `rpcd`, redirect LuCI to login, and prevent login.
+- Polls selected-host connection details only while Current Connections is
+  visible. Live Trend, LAN Hosts, and Traffic History use the compact overview
+  response instead of continuing to transfer a hidden large connection list.
+- Stops implicit retry loops after a history request fails while retaining an
+  explicit retry when the administrator selects a period again.
+- Returns the latest complete history snapshot immediately while a large
+  conntrack scan owns the write lock. The next scan is scheduled only after the
+  previous scan plus the configured interval, preventing reader starvation.
+- Limits one selected-host response to 256 connection rows and shows
+  “returned / actual total”. Host traffic, live rates, risk, and total
+  connection counts still include every connection.
+- Adds regression coverage for cached history under collector contention and
+  bounded responses for hosts with large connection tables.
+
 ## 0.1.1-r11
 
 - Fixes repeated visits to the monitoring page timing out with

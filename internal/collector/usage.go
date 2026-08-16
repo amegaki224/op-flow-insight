@@ -15,6 +15,8 @@ var validGranularities = map[string]bool{
 	"day": true, "month": true, "quarter": true, "year": true,
 }
 
+var ErrHistoryBusy = errors.New("traffic collector is busy; retry shortly")
+
 func (t *Tracker) ensureMonth(now time.Time) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -71,11 +73,35 @@ func (t *Tracker) recordUsageLocked(
 func (t *Tracker) UsageHistory(
 	granularity, period string,
 ) (model.UsageHistory, error) {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
 	if !validGranularities[granularity] {
 		return model.UsageHistory{}, errors.New("invalid history granularity")
 	}
+	if period != "" && !validPeriod(granularity, period) {
+		return model.UsageHistory{}, errors.New("invalid history period")
+	}
+
+	// Do not leave an rpcd helper waiting behind a long conntrack scan. Return a
+	// recent complete result when the collector owns the write lock; the next
+	// request made during the normal gap between scans refreshes the cache.
+	if t.mu.TryRLock() {
+		history, err := t.usageHistoryLocked(granularity, period)
+		t.mu.RUnlock()
+		if err == nil {
+			t.cacheUsageHistory(history)
+		}
+		return history, err
+	}
+	if period != "" {
+		if history, found := t.cachedUsageHistory(granularity, period); found {
+			return history, nil
+		}
+	}
+	return model.UsageHistory{}, ErrHistoryBusy
+}
+
+func (t *Tracker) usageHistoryLocked(
+	granularity, period string,
+) (model.UsageHistory, error) {
 	options := t.periodOptionsLocked(granularity)
 	if period == "" && len(options) > 0 {
 		period = options[0]
@@ -125,6 +151,67 @@ func (t *Tracker) UsageHistory(
 		Totals:      totals,
 		GeneratedAt: time.Now().UTC(),
 	}, nil
+}
+
+func usageCacheKey(granularity, period string) string {
+	return granularity + "\x00" + period
+}
+
+func (t *Tracker) cacheUsageHistory(history model.UsageHistory) {
+	t.usageCacheMu.Lock()
+	if t.usageCache == nil {
+		t.usageCache = make(map[string]model.UsageHistory)
+	}
+	t.usageCache[usageCacheKey(history.Granularity, history.Period)] =
+		cloneUsageHistory(history)
+	t.usageCacheMu.Unlock()
+}
+
+func (t *Tracker) cachedUsageHistory(
+	granularity, period string,
+) (model.UsageHistory, bool) {
+	t.usageCacheMu.RLock()
+	history, found := t.usageCache[usageCacheKey(granularity, period)]
+	t.usageCacheMu.RUnlock()
+	if !found {
+		return model.UsageHistory{}, false
+	}
+	return cloneUsageHistory(history), true
+}
+
+func (t *Tracker) primeUsageCache() {
+	t.mu.RLock()
+	histories := make([]model.UsageHistory, 0, len(validGranularities))
+	for _, granularity := range []string{"day", "month", "quarter", "year"} {
+		options := t.periodOptionsLocked(granularity)
+		if len(options) == 0 {
+			continue
+		}
+		if history, err := t.usageHistoryLocked(granularity, options[0]); err == nil {
+			histories = append(histories, history)
+		}
+	}
+	t.mu.RUnlock()
+	for _, history := range histories {
+		t.cacheUsageHistory(history)
+	}
+}
+
+func (t *Tracker) clearUsageCache() {
+	t.usageCacheMu.Lock()
+	t.usageCache = make(map[string]model.UsageHistory)
+	t.usageCacheMu.Unlock()
+}
+
+func cloneUsageHistory(history model.UsageHistory) model.UsageHistory {
+	history.Options = append([]string(nil), history.Options...)
+	history.Records = append([]model.UsageRecord(nil), history.Records...)
+	for index := range history.Records {
+		history.Records[index].Addresses = append(
+			[]model.HostAddress(nil), history.Records[index].Addresses...,
+		)
+	}
+	return history
 }
 
 func (t *Tracker) ExportUsageTXT(

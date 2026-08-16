@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"net/netip"
 	"net/url"
@@ -49,6 +50,41 @@ func TestDashboardHostFilterKeepsOverviewLightweight(t *testing.T) {
 	if len(filtered.Flows) != 1 || filtered.Flows[0].HostID != hostID {
 		t.Fatalf("filtered dashboard = %+v, want only host %q",
 			filtered.Flows, hostID)
+	}
+}
+
+func TestDashboardHostFilterLimitsLargeConnectionDetails(t *testing.T) {
+	cfg := config.Default()
+	cfg.StateFile = filepath.Join(t.TempDir(), "state.json")
+	cfg.MaxFlows = maxDashboardFlowDetails + 100
+	cfg.LANPrefixes = []netip.Prefix{netip.MustParsePrefix("192.168.1.0/24")}
+	tracker, err := collector.New(cfg, dataset.NewManager(t.TempDir()), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := make([]string, 0, maxDashboardFlowDetails+44)
+	for index := 0; index < maxDashboardFlowDetails+44; index++ {
+		lines = append(lines, fmt.Sprintf(
+			"ipv4 2 tcp 6 100 ESTABLISHED src=192.168.1.20 dst=1.1.1.1 sport=%d dport=443 packets=1 bytes=100 src=1.1.1.1 dst=192.168.1.20 sport=443 dport=%d packets=2 bytes=1000 [ASSURED]",
+			10000+index, 10000+index,
+		))
+	}
+	tracker.Poll(strings.NewReader(strings.Join(lines, "\n")+"\n"), time.Now().UTC())
+	api := &API{tracker: tracker}
+	full := requestDashboard(t, api, "/v1/dashboard")
+	if len(full.Flows) == 0 {
+		t.Fatal("full dashboard has no flows")
+	}
+	hostID := full.Flows[0].HostID
+	filtered := requestDashboard(t, api,
+		"/v1/dashboard?host_id="+url.QueryEscape(hostID))
+	if len(filtered.Flows) != maxDashboardFlowDetails {
+		t.Fatalf("filtered flow count = %d, want %d",
+			len(filtered.Flows), maxDashboardFlowDetails)
+	}
+	if filtered.FlowTotal != maxDashboardFlowDetails+44 || !filtered.FlowsLimited {
+		t.Fatalf("flow metadata = total %d limited %v, want %d/true",
+			filtered.FlowTotal, filtered.FlowsLimited, maxDashboardFlowDetails+44)
 	}
 }
 

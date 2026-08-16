@@ -104,7 +104,7 @@ and install it. Locally built packages are not signed by the official OpenWrt
 repository, so installation must explicitly allow an untrusted local package:
 
 ```sh
-apk add --allow-untrusted ./op-flow-insight-0.1.1-r11.apk
+apk add --allow-untrusted ./op-flow-insight-0.1.1-r12.apk
 /etc/init.d/op-flow enable
 /etc/init.d/op-flow restart
 ```
@@ -113,10 +113,10 @@ Install one optional translation package for the selected LuCI language:
 
 ```sh
 # Simplified Chinese
-apk add --allow-untrusted ./luci-i18n-op-flow-zh-cn-0.1.1-r11.apk
+apk add --allow-untrusted ./luci-i18n-op-flow-zh-cn-0.1.1-r12.apk
 
 # Japanese
-apk add --allow-untrusted ./luci-i18n-op-flow-ja-0.1.1-r11.apk
+apk add --allow-untrusted ./luci-i18n-op-flow-ja-0.1.1-r12.apk
 ```
 
 Open **Status → Flow Insight** in LuCI. After the first installation, click
@@ -138,10 +138,10 @@ logread -e op-flow
 ImmortalWrt 24.10.x still uses opkg/IPK:
 
 ```sh
-opkg install ./op-flow-insight_0.1.1-r11_x86_64.ipk
+opkg install ./op-flow-insight_0.1.1-r12_x86_64.ipk
 # Optional: choose Simplified Chinese or Japanese
-opkg install ./luci-i18n-op-flow-zh-cn_0.1.1-r11_all.ipk
-# opkg install ./luci-i18n-op-flow-ja_0.1.1-r11_all.ipk
+opkg install ./luci-i18n-op-flow-zh-cn_0.1.1-r12_all.ipk
+# opkg install ./luci-i18n-op-flow-ja_0.1.1-r12_all.ipk
 /etc/init.d/op-flow enable
 /etc/init.d/op-flow restart
 ```

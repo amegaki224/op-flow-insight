@@ -82,6 +82,11 @@ type API struct {
 	updates *Coordinator
 }
 
+// Rendering thousands of table rows every two seconds can freeze the browser
+// and leave many abandoned rpcd helpers behind. The aggregate host and router
+// counters remain complete; only one detail response is bounded.
+const maxDashboardFlowDetails = 256
+
 func NewAPI(tracker *collector.Tracker, data *dataset.Manager, updates *Coordinator) *API {
 	return &API{tracker: tracker, data: data, updates: updates}
 }
@@ -111,11 +116,20 @@ func (a *API) dashboard(w http.ResponseWriter, r *http.Request) {
 		}
 		flows := make([]model.Flow, 0)
 		if hostID != "" {
-			for _, flow := range snapshot.Flows {
-				if flow.HostID == hostID {
-					flows = append(flows, flow)
+			for _, host := range snapshot.Hosts {
+				if host.ID == hostID {
+					snapshot.FlowTotal = host.ActiveFlows
+					break
 				}
 			}
+			for _, flow := range snapshot.Flows {
+				if flow.HostID == hostID {
+					if len(flows) < maxDashboardFlowDetails {
+						flows = append(flows, flow)
+					}
+				}
+			}
+			snapshot.FlowsLimited = snapshot.FlowTotal > len(flows)
 		}
 		snapshot.Flows = flows
 	}
@@ -167,7 +181,11 @@ func (a *API) history(w http.ResponseWriter, r *http.Request) {
 		r.URL.Query().Get("granularity"), r.URL.Query().Get("period"),
 	)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		status := http.StatusBadRequest
+		if errors.Is(err, collector.ErrHistoryBusy) {
+			status = http.StatusServiceUnavailable
+		}
+		writeJSON(w, status, map[string]string{"error": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, history)

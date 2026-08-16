@@ -25,6 +25,8 @@ type Tracker struct {
 	mu                 sync.RWMutex
 	saveMu             sync.Mutex
 	cachedSnapshot     atomic.Value
+	usageCacheMu       sync.RWMutex
+	usageCache         map[string]model.UsageHistory
 	cfg                config.Config
 	data               *dataset.Manager
 	hosts              map[string]model.Host
@@ -91,9 +93,11 @@ func New(cfg config.Config, data *dataset.Manager, version string) (*Tracker, er
 		localAddrs:  localInterfaceAddrs(),
 		lanPrefixes: append([]netip.Prefix(nil), cfg.LANPrefixes...),
 		lanDevices:  make(map[string]bool),
+		usageCache:  make(map[string]model.UsageHistory),
 		version:     version,
 	}
 	tracker.ensureMonth(time.Now())
+	tracker.primeUsageCache()
 	if err != nil {
 		tracker.health.Warnings = append(tracker.health.Warnings,
 			"Cumulative state file is damaged; restarted from current connections: "+err.Error())
@@ -106,15 +110,19 @@ func New(cfg config.Config, data *dataset.Manager, version string) (*Tracker, er
 }
 
 func (t *Tracker) Run(ctx context.Context) {
-	ticker := time.NewTicker(t.cfg.PollInterval)
 	saveTicker := time.NewTicker(t.cfg.SaveInterval)
-	defer ticker.Stop()
 	defer saveTicker.Stop()
 	t.pollFile(time.Now().UTC())
+	// Schedule the next collection after the previous one completes. With a
+	// fixed ticker, a slow scan leaves a tick queued and immediately starts the
+	// next write-locked scan, starving dashboard/history readers indefinitely.
+	pollTimer := time.NewTimer(t.cfg.PollInterval)
+	defer pollTimer.Stop()
 	for {
 		select {
-		case now := <-ticker.C:
-			t.pollFile(now.UTC())
+		case <-pollTimer.C:
+			t.pollFile(time.Now().UTC())
+			pollTimer.Reset(t.cfg.PollInterval)
 		case <-saveTicker.C:
 			_ = t.Save()
 		case <-ctx.Done():
@@ -146,7 +154,6 @@ func (t *Tracker) pollFile(now time.Time) {
 func (t *Tracker) Poll(r io.Reader, now time.Time) {
 	parsed := conntrack.Parse(r)
 	t.mu.Lock()
-	defer t.mu.Unlock()
 
 	t.health.ConntrackReadable = true
 	t.health.AccountingEnabled = parsed.HasBytes
@@ -271,6 +278,7 @@ func (t *Tracker) Poll(r io.Reader, now time.Time) {
 		}
 	}
 	t.flows = flows
+	refreshUsageCache := false
 	if t.lastHistory.IsZero() || now.Sub(t.lastHistory) >= 5*time.Second {
 		t.history = append(t.history, model.RatePoint{
 			At: now, UploadBPS: totalUpRate, DownloadBPS: totalDownRate,
@@ -279,6 +287,11 @@ func (t *Tracker) Poll(r io.Reader, now time.Time) {
 			t.history = append([]model.RatePoint(nil), t.history[len(t.history)-120:]...)
 		}
 		t.lastHistory = now
+		refreshUsageCache = true
+	}
+	t.mu.Unlock()
+	if refreshUsageCache {
+		t.primeUsageCache()
 	}
 }
 
@@ -569,6 +582,8 @@ func (t *Tracker) ResetCounters() error {
 	}
 	t.history = nil
 	t.mu.Unlock()
+	t.clearUsageCache()
+	t.primeUsageCache()
 	return t.Save()
 }
 
