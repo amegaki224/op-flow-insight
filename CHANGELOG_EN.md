@@ -9,6 +9,14 @@ are therefore published as historical binary archives. GitHub's automatically
 generated “Source code” archives do not represent those older versions.
 Starting with `r5`, release tags correspond to source commits.
 
+## 0.1.1-r13
+
+- Reads per-MAC static host names from `/etc/config/dhcp` during the two-second
+  identity refresh, so a LuCI static-lease rename no longer waits for the
+  client to renew its active DHCP lease.
+- Gives explicit static names precedence over stale client-reported names in
+  the dnsmasq lease file and supports multiple MACs in one static host section.
+
 ## 0.1.1-r12
 
 - Fixes the failure loop triggered by selecting a LAN host with hundreds of

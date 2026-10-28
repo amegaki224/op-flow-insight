@@ -19,9 +19,10 @@
 - 展示每条当前连接的方向、协议、源 IP/端口、目标 IP/端口。
 - 支持 IPv4、IPv6、普通出站和端口转发（DNAT）入站；自动识别 LAN
   接口上由运营商委派的公网 IPv6 前缀。
-- 自动读取 dnsmasq DHCP lease，显示主机名和 MAC。
-- DHCP hostname 变更约 2 秒内同步到在线列表和历史档案；历史查询及 TXT 导出使用
-  查询或导出时的最新主机名。
+- 自动读取 dnsmasq DHCP lease 与 OpenWrt 静态 DHCP 配置，显示主机名和 MAC；按
+  MAC 显式配置的静态名称优先于客户端租约中上报的名称。
+- DHCP hostname 或静态主机名变更约 2 秒内同步到在线列表和历史档案；历史查询及
+  TXT 导出使用查询或导出时的最新主机名。
 - 内网主机列表只显示当前有效或正在使用的地址；设备换网段后不再展示残留旧 IP，
   但旧地址和累计量仍保留在历史档案中。
 - 自动排除路由器自己的接口地址。
@@ -76,22 +77,22 @@ LuCI 都显示日语，固件还需要 LuCI 基础日语包（通常为 `luci-i1
 
 ## 安装
 
-从构建产物取得 `op-flow-insight-<版本>-r<修订>.apk`，上传到路由器后安装。自行构建的包没有加入 OpenWrt 官方签名仓库，因此需要显式允许本地未受信任包：
+从构建产物取得主程序和简体中文语言包，上传到路由器后在同一条命令中安装。自行构建的包没有加入 OpenWrt 官方签名仓库，因此需要显式允许本地未受信任包：
 
 ```sh
-apk add --allow-untrusted ./op-flow-insight-0.1.1-r12.apk
+apk add --allow-untrusted \
+  ./op-flow-insight-0.1.1-r13.apk \
+  ./luci-i18n-op-flow-zh-cn-0.1.1-r13.apk
 /etc/init.d/op-flow enable
 /etc/init.d/op-flow restart
 ```
 
-根据 LuCI 当前语言，再安装一个可选语言包：
+如使用日语界面，将上述简体中文包替换为日语包：
 
 ```sh
-# 简体中文
-apk add --allow-untrusted ./luci-i18n-op-flow-zh-cn-0.1.1-r12.apk
-
-# 日语
-apk add --allow-untrusted ./luci-i18n-op-flow-ja-0.1.1-r12.apk
+apk add --allow-untrusted \
+  ./op-flow-insight-0.1.1-r13.apk \
+  ./luci-i18n-op-flow-ja-0.1.1-r13.apk
 ```
 
 然后打开 LuCI 的“状态 → 流量洞察”。首次安装后可点击“更新数据集”，也可在 SSH 中同步执行：
@@ -112,10 +113,9 @@ logread -e op-flow
 24.10.x 仍使用 opkg/IPK。上传 IPK 后安装：
 
 ```sh
-opkg install ./op-flow-insight_0.1.1-r12_x86_64.ipk
-# 可选：简体中文或日语，二选一
-opkg install ./luci-i18n-op-flow-zh-cn_0.1.1-r12_all.ipk
-# opkg install ./luci-i18n-op-flow-ja_0.1.1-r12_all.ipk
+opkg install \
+  ./op-flow-insight_0.1.1-r13_x86_64.ipk \
+  ./luci-i18n-op-flow-zh-cn_0.1.1-r13_all.ipk
 /etc/init.d/op-flow enable
 /etc/init.d/op-flow restart
 ```
@@ -190,6 +190,7 @@ bash ./scripts/build-ipk.sh /opt/immortalwrt-sdk-24.10.6-x86-64
 | `poll_interval` | `2s` | 实时采集间隔，最小 500ms |
 | `save_interval` | `5m` | 累计状态落盘间隔，最小 30s |
 | `max_flows` | `500` | Web 页面最多返回的活动连接 |
+| `dhcp_config_path` | `/etc/config/dhcp` | OpenWrt 静态 DHCP 主机配置路径 |
 | `auto_update` | `1` | 自动更新离线数据 |
 | `update_interval` | `24h` | 数据更新周期 |
 

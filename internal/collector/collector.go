@@ -43,6 +43,7 @@ type Tracker struct {
 	lastHistory        time.Time
 	leases             map[string]lease
 	leaseByMAC         map[string]lease
+	hostnamesByMAC     map[string]string
 	neighbors          map[string]neighbor
 	localAddrs         map[netip.Addr]bool
 	lanPrefixes        []netip.Prefix
@@ -86,15 +87,16 @@ func New(cfg config.Config, data *dataset.Manager, version string) (*Tracker, er
 			ConntrackReadable: false,
 			AccountingEnabled: false,
 		},
-		started:     time.Now().UTC(),
-		leases:      make(map[string]lease),
-		leaseByMAC:  make(map[string]lease),
-		neighbors:   make(map[string]neighbor),
-		localAddrs:  localInterfaceAddrs(),
-		lanPrefixes: append([]netip.Prefix(nil), cfg.LANPrefixes...),
-		lanDevices:  make(map[string]bool),
-		usageCache:  make(map[string]model.UsageHistory),
-		version:     version,
+		started:        time.Now().UTC(),
+		leases:         make(map[string]lease),
+		leaseByMAC:     make(map[string]lease),
+		hostnamesByMAC: make(map[string]string),
+		neighbors:      make(map[string]neighbor),
+		localAddrs:     localInterfaceAddrs(),
+		lanPrefixes:    append([]netip.Prefix(nil), cfg.LANPrefixes...),
+		lanDevices:     make(map[string]bool),
+		usageCache:     make(map[string]model.UsageHistory),
+		version:        version,
 	}
 	tracker.ensureMonth(time.Now())
 	tracker.primeUsageCache()

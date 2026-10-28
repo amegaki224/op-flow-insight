@@ -52,7 +52,7 @@ function ensureStyles() {
 		stylesheet.id = 'op-flow-insight-stylesheet';
 		stylesheet.rel = 'stylesheet';
 		stylesheet.type = 'text/css';
-		stylesheet.href = L.resource('op-flow.css') + '?v=0.1.1-r12';
+		stylesheet.href = L.resource('op-flow.css') + '?v=0.1.1-r13';
 		document.head.appendChild(stylesheet);
 	}
 	return stylesheet;

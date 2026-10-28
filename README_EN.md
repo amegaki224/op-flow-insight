@@ -30,10 +30,12 @@ explainable 0–100 risk score for remote IP addresses.
   connection.
 - IPv4, IPv6, ordinary outbound traffic, and inbound port forwarding (DNAT),
   including automatic discovery of ISP-delegated global IPv6 prefixes on LAN.
-- Host names and MAC addresses read automatically from dnsmasq DHCP leases.
-- DHCP hostname changes propagate to the live list and retained history in
-  about two seconds. History queries and TXT exports use the latest name at
-  query or export time.
+- Host names and MAC addresses read automatically from dnsmasq DHCP leases and
+  OpenWrt static DHCP host configuration. An explicit per-MAC static name takes
+  precedence over the client-reported lease name.
+- DHCP lease or static host-name changes propagate to the live list and
+  retained history in about two seconds. History queries and TXT exports use
+  the latest name at query or export time.
 - The LAN host list shows only currently valid or actively used addresses.
   Previous subnet addresses remain in retained history but not in the live row.
 - Automatic exclusion of the router's own interface addresses.
@@ -104,7 +106,7 @@ and install it. Locally built packages are not signed by the official OpenWrt
 repository, so installation must explicitly allow an untrusted local package:
 
 ```sh
-apk add --allow-untrusted ./op-flow-insight-0.1.1-r12.apk
+apk add --allow-untrusted ./op-flow-insight-0.1.1-r13.apk
 /etc/init.d/op-flow enable
 /etc/init.d/op-flow restart
 ```
@@ -113,10 +115,10 @@ Install one optional translation package for the selected LuCI language:
 
 ```sh
 # Simplified Chinese
-apk add --allow-untrusted ./luci-i18n-op-flow-zh-cn-0.1.1-r12.apk
+apk add --allow-untrusted ./luci-i18n-op-flow-zh-cn-0.1.1-r13.apk
 
 # Japanese
-apk add --allow-untrusted ./luci-i18n-op-flow-ja-0.1.1-r12.apk
+apk add --allow-untrusted ./luci-i18n-op-flow-ja-0.1.1-r13.apk
 ```
 
 Open **Status → Flow Insight** in LuCI. After the first installation, click
@@ -138,10 +140,10 @@ logread -e op-flow
 ImmortalWrt 24.10.x still uses opkg/IPK:
 
 ```sh
-opkg install ./op-flow-insight_0.1.1-r12_x86_64.ipk
+opkg install ./op-flow-insight_0.1.1-r13_x86_64.ipk
 # Optional: choose Simplified Chinese or Japanese
-opkg install ./luci-i18n-op-flow-zh-cn_0.1.1-r12_all.ipk
-# opkg install ./luci-i18n-op-flow-ja_0.1.1-r12_all.ipk
+opkg install ./luci-i18n-op-flow-zh-cn_0.1.1-r13_all.ipk
+# opkg install ./luci-i18n-op-flow-ja_0.1.1-r13_all.ipk
 /etc/init.d/op-flow enable
 /etc/init.d/op-flow restart
 ```
@@ -240,6 +242,7 @@ The configuration file is `/etc/config/op-flow`.
 | `poll_interval` | `2s` | Live sampling interval; minimum 500 ms |
 | `save_interval` | `5m` | State persistence interval; minimum 30 s |
 | `max_flows` | `500` | Maximum active connections returned to the web UI |
+| `dhcp_config_path` | `/etc/config/dhcp` | OpenWrt static DHCP host configuration path |
 | `auto_update` | `1` | Automatically update offline datasets |
 | `update_interval` | `24h` | Dataset update interval |
 

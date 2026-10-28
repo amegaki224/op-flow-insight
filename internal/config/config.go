@@ -18,6 +18,7 @@ type Config struct {
 	MaxFlows       int
 	ConntrackPath  string
 	LeasePath      string
+	DHCPConfigPath string
 	StateFile      string
 	SocketPath     string
 	DataDir        string
@@ -39,6 +40,7 @@ func Default() Config {
 		MaxFlows:       500,
 		ConntrackPath:  "/proc/net/nf_conntrack",
 		LeasePath:      "/tmp/dhcp.leases",
+		DHCPConfigPath: "/etc/config/dhcp",
 		StateFile:      "/etc/op-flow/state.json",
 		SocketPath:     "/var/run/op-flow.sock",
 		DataDir:        "/usr/share/op-flow/data",
@@ -103,6 +105,8 @@ func Load(path string) (Config, error) {
 			cfg.ConntrackPath = value
 		case "lease_path":
 			cfg.LeasePath = value
+		case "dhcp_config_path":
+			cfg.DHCPConfigPath = value
 		case "state_file":
 			cfg.StateFile = value
 		case "socket_path":

@@ -439,6 +439,95 @@ func TestHostnameChangeRefreshesOnlineAndRetainedViews(t *testing.T) {
 	}
 }
 
+func TestStaticDHCPHostnameChangeOverridesActiveLease(t *testing.T) {
+	cfg := config.Default()
+	cfg.StateFile = filepath.Join(t.TempDir(), "state.json")
+	cfg.LeasePath = filepath.Join(t.TempDir(), "dhcp.leases")
+	cfg.DHCPConfigPath = filepath.Join(t.TempDir(), "dhcp")
+	cfg.LANPrefixes = []netip.Prefix{
+		netip.MustParsePrefix("192.168.1.0/24"),
+	}
+	mac := "02:11:22:33:44:55"
+	lease := "2000000000 " + mac + " 192.168.1.23 client-old-name *\n"
+	if err := os.WriteFile(cfg.LeasePath, []byte(lease), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeStaticHost := func(hostname string) {
+		t.Helper()
+		body := "config host\n" +
+			"\toption name '" + hostname + "'\n" +
+			"\toption mac '" + strings.ToLower(mac) + "'\n" +
+			"\toption ip '192.168.1.23'\n"
+		if err := os.WriteFile(cfg.DHCPConfigPath, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeStaticHost("admin-old-name")
+
+	tracker, err := New(cfg, dataset.NewManager(t.TempDir()), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tracker.lanDevices["br-lan"] = true
+	tracker.neighbors = map[string]neighbor{
+		"192.168.1.23": {
+			IP: "192.168.1.23", MAC: mac, Device: "br-lan",
+			State: "REACHABLE", Online: true,
+		},
+	}
+
+	now := time.Now().UTC()
+	tracker.lastPoll = now.Add(-cfg.PollInterval)
+	fixture := "ipv4 2 tcp 6 100 ESTABLISHED src=192.168.1.23 dst=1.1.1.1 sport=50000 dport=443 packets=1 bytes=100 src=1.1.1.1 dst=192.168.1.23 sport=443 dport=50000 packets=2 bytes=1000 [ASSURED]\n"
+	tracker.Poll(strings.NewReader(fixture), now)
+	if got := tracker.Snapshot(); len(got.Hosts) != 1 ||
+		got.Hosts[0].Hostname != "admin-old-name" {
+		t.Fatalf("static hostname did not override the active lease: %+v", got.Hosts)
+	}
+
+	// The active dnsmasq lease deliberately remains unchanged. A committed UCI
+	// rename must still reach every view at the next identity refresh.
+	writeStaticHost("admin-new-name")
+	tracker.Poll(strings.NewReader(""), now.Add(leaseRefreshInterval))
+
+	got := tracker.Snapshot()
+	if len(got.Hosts) != 1 || got.Hosts[0].Hostname != "admin-new-name" {
+		t.Fatalf("static hostname rename was not refreshed: %+v", got.Hosts)
+	}
+	history, err := tracker.UsageHistory(
+		"day", now.In(time.Local).Format("2006-01-02"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history.Records) != 1 ||
+		history.Records[0].Hostname != "admin-new-name" {
+		t.Fatalf("retained hostname was not refreshed: %+v", history.Records)
+	}
+}
+
+func TestReadStaticDHCPHostnamesSupportsMACLists(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "dhcp")
+	body := "config dnsmasq\n" +
+		"\toption domain 'lan'\n" +
+		"config host\n" +
+		"\toption name 'desktop' # inline comment\n" +
+		"\tlist mac '02:11:22:33:44:55'\n" +
+		"\toption mac '02:11:22:33:44:66,02:11:22:33:44:77'\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got := readStaticDHCPHostnames(path)
+	for _, mac := range []string{
+		"02:11:22:33:44:55", "02:11:22:33:44:66", "02:11:22:33:44:77",
+	} {
+		if got[mac] != "desktop" {
+			t.Fatalf("hostname for %s = %q, want desktop; all=%v", mac, got[mac], got)
+		}
+	}
+}
+
 func TestOfflineHostIsHiddenAndUsageResumes(t *testing.T) {
 	cfg := config.Default()
 	cfg.StateFile = filepath.Join(t.TempDir(), "state.json")

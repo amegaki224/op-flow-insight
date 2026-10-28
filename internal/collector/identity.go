@@ -137,6 +137,18 @@ func preferLease(candidate, current lease) bool {
 func (t *Tracker) refreshLeasesLocked(now time.Time) {
 	t.leases = readLeases(t.cfg.LeasePath)
 	t.leaseByMAC = leasesByMAC(t.leases)
+	t.hostnamesByMAC = make(map[string]string, len(t.leaseByMAC))
+	for mac, info := range t.leaseByMAC {
+		if hostname := strings.TrimSpace(info.Hostname); hostname != "" {
+			t.hostnamesByMAC[mac] = hostname
+		}
+	}
+	// A name explicitly assigned to a MAC in OpenWrt is authoritative. It is
+	// updated as soon as UCI is committed and must not wait for dnsmasq to
+	// rewrite an already active lease after the client renews it.
+	for mac, hostname := range readStaticDHCPHostnames(t.cfg.DHCPConfigPath) {
+		t.hostnamesByMAC[mac] = hostname
+	}
 	t.lastLeaseRead = now
 	t.applyLeaseHostnamesLocked()
 }
@@ -164,12 +176,8 @@ func (t *Tracker) applyLeaseHostnamesLocked() {
 		}
 		t.profiles[id] = profile
 	}
-	for mac, info := range t.leaseByMAC {
-		hostname := strings.TrimSpace(info.Hostname)
-		if hostname == "" {
-			continue
-		}
-		id := t.canonicalIDLocked(identity(mac, info.IP))
+	for mac, hostname := range t.hostnamesByMAC {
+		id := t.canonicalIDLocked(identity(mac, ""))
 		names[id] = hostname
 		macs[id] = mac
 		profile := t.profiles[id]
@@ -224,8 +232,8 @@ func (t *Tracker) resolveIdentityLocked(ip string) (string, string, string) {
 			mac = normalizeMAC(host.MAC)
 		}
 	}
-	if info, found := t.leaseByMAC[mac]; found && hostname == "" {
-		hostname = info.Hostname
+	if current := t.hostnamesByMAC[mac]; current != "" {
+		hostname = current
 	}
 	id := identity(mac, ip)
 	if mac != "" {
@@ -472,22 +480,13 @@ func (t *Tracker) onlineHostsLocked() []model.Host {
 			group.MAC = normalizeMAC(entry.MAC)
 		}
 		if group.Hostname == "" {
-			if info, found := t.leaseByMAC[group.MAC]; found {
-				group.Hostname = info.Hostname
-			}
+			group.Hostname = t.hostnamesByMAC[group.MAC]
 		}
 		groups[id] = group
 	}
 	for id, group := range groups {
-		info, found := t.leaseByMAC[normalizeMAC(group.MAC)]
-		if !found {
-			continue
-		}
-		if info.Hostname != "" {
-			group.Hostname = info.Hostname
-		}
-		if group.MAC == "" {
-			group.MAC = normalizeMAC(info.MAC)
+		if hostname := t.hostnamesByMAC[normalizeMAC(group.MAC)]; hostname != "" {
+			group.Hostname = hostname
 		}
 		groups[id] = group
 	}
